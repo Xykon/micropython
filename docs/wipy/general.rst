@@ -16,7 +16,7 @@ Before applying power
 
 .. warning:: 
 
-   The GPIO pins of the WiPy are NOT 5V tolerant, connecting them to voltages higer
+   The GPIO pins of the WiPy are NOT 5V tolerant, connecting them to voltages higher
    than 3.6V will cause irreparable damage to the board. ADC pins, when configured 
    in analog mode cannot withstand voltages above 1.8V. Keep these considerations in
    mind when wiring your electronics.
@@ -170,3 +170,12 @@ There are currently 2 kinds of errors that you might see:
 2. If the heartbeat LED stays on, then there was a hard fault, you cannot
    recover from this, the only way out is to press the reset switch.
 
+Details on sleep modes
+----------------------
+
+* ``machine.idle()``: Power consumption: ~12mA (in WLAN STA mode). Wake sources:
+  any hardware interrupt (including systick with period of 1ms), no special
+  configuration required.
+* ``machine.sleep()``: 950uA (in WLAN STA mode). Wake sources are ``Pin``, ``RTC``
+  and ``WLAN``
+* ``machine.deepsleep()``: ~5uA. Wake sources are ``Pin`` and ``RTC``.

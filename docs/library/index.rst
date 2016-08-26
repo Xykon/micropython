@@ -1,62 +1,37 @@
 MicroPython libraries
 =====================
 
-Functionality specific to the MicroPython implementation is available in
-the following library.
+This chapter describes modules (function and class libraries) which are built
+into MicroPython. There are a few categories of modules:
 
-.. toctree::
-   :maxdepth: 1
+* Modules which implement a subset of standard Python functionality and are not
+  intended to be extended by the user.
+* Modules which implement a subset of Python functionality, with a provision
+  for extension by the user (via Python code).
+* Modules which implement MicroPython extensions to the Python standard libraries.
+* Modules specific to a particular port and thus not portable.
 
-   micropython.rst
+Note about the availability of modules and their contents: This documentation
+in general aspires to describe all modules and functions/classes which are
+implemented in MicroPython. However, MicroPython is highly configurable, and
+each port to a particular board/embedded system makes available only a subset
+of MicroPython libraries. For officially supported ports, there is an effort
+to either filter out non-applicable items, or mark individual descriptions
+with "Availability:" clauses describing which ports provide a given feature.
+With that in mind, please still be warned that some functions/classes
+in a module (or even the entire module) described in this documentation may be
+unavailable in a particular build of MicroPython on a particular board. The
+best place to find general information of the availability/non-availability
+of a particular feature is the "General Information" section which contains
+information pertaining to a specific port.
 
-Python standard libraries
--------------------------
-
-The following standard Python libraries are built in to MicroPython.
-
-For additional libraries, please download them from the `micropython-lib repository
+Beyond the built-in libraries described in this documentation, many more
+modules from the Python standard library, as well as further MicroPython
+extensions to it, can be found in the `micropython-lib repository
 <https://github.com/micropython/micropython-lib>`_.
 
-.. only:: port_unix
-
-    .. toctree::
-       :maxdepth: 1
-    
-       cmath.rst
-       gc.rst
-       math.rst
-       os.rst
-       struct.rst
-       sys.rst
-       time.rst
-
-.. only:: port_pyboard
-
-    .. toctree::
-       :maxdepth: 1
-    
-       cmath.rst
-       gc.rst
-       math.rst
-       os.rst
-       select.rst
-       struct.rst
-       sys.rst
-       time.rst
-
-.. only:: port_wipy
-
-    .. toctree::
-       :maxdepth: 1
-    
-       gc.rst
-       os.rst
-       select.rst
-       sys.rst
-       time.rst
-
-Python micro-libraries
-----------------------
+Python standard libraries and micro-libraries
+---------------------------------------------
 
 The following standard Python libraries have been "micro-ified" to fit in with
 the philosophy of MicroPython.  They provide the core functionality of that
@@ -71,19 +46,113 @@ library.
     directory ``json`` and load that package if it is found.  If nothing is found,
     it will fallback to loading the built-in ``ujson`` module.
 
-.. only:: port_pyboard or port_unix
+.. only:: port_unix
 
-   .. toctree::
-      :maxdepth: 1
-    
-      ubinascii.rst
-      uctypes.rst
-      uhashlib.rst
-      uheapq.rst
-      ujson.rst
-      ure.rst
-      usocket.rst
-      uzlib.rst
+    .. toctree::
+       :maxdepth: 1
+
+       array.rst
+       builtins.rst
+       cmath.rst
+       gc.rst
+       math.rst
+       select.rst
+       sys.rst
+       ubinascii.rst
+       ucollections.rst
+       uhashlib.rst
+       uheapq.rst
+       uio.rst
+       ujson.rst
+       uos.rst
+       ure.rst
+       usocket.rst
+       ustruct.rst
+       utime.rst
+       uzlib.rst
+
+.. only:: port_pyboard
+
+    .. toctree::
+       :maxdepth: 1
+
+       array.rst
+       builtins.rst
+       cmath.rst
+       gc.rst
+       math.rst
+       select.rst
+       sys.rst
+       ubinascii.rst
+       ucollections.rst
+       uhashlib.rst
+       uheapq.rst
+       uio.rst
+       ujson.rst
+       uos.rst
+       ure.rst
+       usocket.rst
+       ustruct.rst
+       utime.rst
+       uzlib.rst
+
+.. only:: port_wipy
+
+    .. toctree::
+       :maxdepth: 1
+
+       array.rst
+       builtins.rst
+       gc.rst
+       select.rst
+       sys.rst
+       ubinascii.rst
+       ujson.rst
+       uos.rst
+       ure.rst
+       usocket.rst
+       ussl.rst
+       utime.rst
+
+.. only:: port_esp8266
+
+    .. toctree::
+       :maxdepth: 1
+
+       array.rst
+       builtins.rst
+       gc.rst
+       math.rst
+       sys.rst
+       ubinascii.rst
+       ucollections.rst
+       uhashlib.rst
+       uheapq.rst
+       uio.rst
+       ujson.rst
+       uos.rst
+       ure.rst
+       usocket.rst
+       ussl.rst
+       ustruct.rst
+       utime.rst
+       uzlib.rst
+
+
+MicroPython-specific libraries
+------------------------------
+
+Functionality specific to the MicroPython implementation is available in
+the following libraries.
+
+.. toctree::
+   :maxdepth: 1
+
+   machine.rst
+   micropython.rst
+   network.rst
+   uctypes.rst
+
 
 .. only:: port_pyboard
 
@@ -96,18 +165,6 @@ library.
       :maxdepth: 2
 
       pyb.rst
-      network.rst
-
-.. only:: port_wipy
-
-   .. toctree::
-      :maxdepth: 1
-
-      ubinascii.rst
-      ujson.rst
-      ure.rst
-      usocket.rst
-      ussl.rst
 
 .. only:: port_wipy
 
@@ -119,8 +176,6 @@ library.
    .. toctree::
       :maxdepth: 2
 
-      machine.rst
-      network.rst
       wipy.rst
 
 
@@ -134,6 +189,4 @@ library.
    .. toctree::
       :maxdepth: 2
 
-      pyb.rst
       esp.rst
-      network.rst

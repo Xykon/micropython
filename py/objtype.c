@@ -232,7 +232,7 @@ STATIC void instance_print(const mp_print_t *print, mp_obj_t self_in, mp_print_k
     }
 
     // TODO: CPython prints fully-qualified type name
-    mp_printf(print, "<%s object at %p>", mp_obj_get_type_str(self_in), self_in);
+    mp_printf(print, "<%s object at %p>", mp_obj_get_type_str(self_in), self);
 }
 
 mp_obj_t mp_obj_instance_make_new(const mp_obj_type_t *self, size_t n_args, size_t n_kw, const mp_obj_t *args) {
@@ -914,7 +914,13 @@ mp_obj_t mp_obj_new_type(qstr name, mp_obj_t bases_tuple, mp_obj_t locals_dict) 
     o->getiter = instance_getiter;
     //o->iternext = ; not implemented
     o->buffer_p.get_buffer = instance_get_buffer;
-    //o->stream_p = ; not implemented
+    // Inherit protocol from a base class. This allows to define an
+    // abstract base class which would translate C-level protocol to
+    // Python method calls, and any subclass inheriting from it will
+    // support this feature.
+    if (len > 0) {
+        o->protocol = ((mp_obj_type_t*)MP_OBJ_TO_PTR(items[0]))->protocol;
+    }
     o->bases_tuple = MP_OBJ_TO_PTR(bases_tuple);
     o->locals_dict = MP_OBJ_TO_PTR(locals_dict);
 

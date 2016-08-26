@@ -45,6 +45,7 @@
 #include "py/gc.h"
 #include "py/stackctrl.h"
 #include "py/mphal.h"
+#include "py/mpthread.h"
 #include "extmod/misc.h"
 #include "genhdr/mpversion.h"
 #include "input.h"
@@ -292,7 +293,7 @@ STATIC int usage(char **argv) {
 "-v : verbose (trace various operations); can be multiple\n"
 "-O[N] : apply bytecode optimizations of level N\n"
 "\n"
-"Implementation specific options:\n", argv[0]
+"Implementation specific options (-X):\n", argv[0]
 );
     int impl_opts_cnt = 0;
     printf(
@@ -302,7 +303,7 @@ STATIC int usage(char **argv) {
     impl_opts_cnt++;
 #if MICROPY_ENABLE_GC
     printf(
-"  heapsize=<n> -- set the heap size for the GC (default %ld)\n"
+"  heapsize=<n>[w][K|M] -- set the heap size for the GC (default %ld)\n"
 , heap_size);
     impl_opts_cnt++;
 #endif
@@ -350,12 +351,20 @@ STATIC void pre_process_options(int argc, char **argv) {
                         heap_size *= 1024;
                     } else if ((*end | 0x20) == 'm') {
                         heap_size *= 1024 * 1024;
+                    } else {
+                        // Compensate for ++ below
+                        --end;
+                    }
+                    if (*++end != 0) {
+                        goto invalid_arg;
                     }
                     if (word_adjust) {
                         heap_size = heap_size * BYTES_PER_WORD / 4;
                     }
 #endif
                 } else {
+invalid_arg:
+                    printf("Invalid option\n");
                     exit(usage(argv));
                 }
                 a++;
@@ -376,26 +385,22 @@ STATIC void set_sys_argv(char *argv[], int argc, int start_arg) {
 #define PATHLIST_SEP_CHAR ':'
 #endif
 
-/*
-typedef union _a_t { uint32_t u32; uint64_t u64; } a_t;
-STATIC const uint64_t table[4] = {
-    1,
-    2,
-    3,
-    //(a_t){(uint32_t)&set_sys_argv}.u64,
-    ((a_t){(uint32_t)123}).u64,
-};
-*/
+MP_NOINLINE int main_(int argc, char **argv);
 
 int main(int argc, char **argv) {
-    /*
-    printf("sizeof(void*)=%u\n", (uint)sizeof(void*));
-    for (int i = 0; i < sizeof(table); ++i) {
-        byte *ptr = (void*)&table[0];
-        printf(" %02x", ptr[i]);
-        if ((i + 1)%8 == 0) printf("\n");
-    }
-    */
+    #if MICROPY_PY_THREAD
+    mp_thread_init();
+    #endif
+    // We should capture stack top ASAP after start, and it should be
+    // captured guaranteedly before any other stack variables are allocated.
+    // For this, actual main (renamed main_) should not be inlined into
+    // this function. main_() itself may have other functions inlined (with
+    // their own stack variables), that's why we need this main/main_ split.
+    mp_stack_ctrl_init();
+    return main_(argc, argv);
+}
+
+MP_NOINLINE int main_(int argc, char **argv) {
     mp_stack_set_limit(40000 * (BYTES_PER_WORD / 4));
 
     pre_process_options(argc, argv);
@@ -439,10 +444,12 @@ int main(int argc, char **argv) {
         }
         if (p[0] == '~' && p[1] == '/' && home != NULL) {
             // Expand standalone ~ to $HOME
-            CHECKBUF(buf, PATH_MAX);
-            CHECKBUF_APPEND(buf, home, strlen(home));
-            CHECKBUF_APPEND(buf, p + 1, (size_t)(p1 - p - 1));
-            path_items[i] = MP_OBJ_NEW_QSTR(qstr_from_strn(buf, CHECKBUF_LEN(buf)));
+            int home_l = strlen(home);
+            vstr_t vstr;
+            vstr_init(&vstr, home_l + (p1 - p - 1) + 1);
+            vstr_add_strn(&vstr, home, home_l);
+            vstr_add_strn(&vstr, p + 1, p1 - p - 1);
+            path_items[i] = mp_obj_new_str_from_vstr(&mp_type_str, &vstr);
         } else {
             path_items[i] = MP_OBJ_NEW_QSTR(qstr_from_strn(p, p1 - p));
         }
@@ -481,9 +488,12 @@ int main(int argc, char **argv) {
 
     const int NOTHING_EXECUTED = -2;
     int ret = NOTHING_EXECUTED;
+    bool inspect = false;
     for (int a = 1; a < argc; a++) {
         if (argv[a][0] == '-') {
-            if (strcmp(argv[a], "-c") == 0) {
+            if (strcmp(argv[a], "-i") == 0) {
+                inspect = true;
+            } else if (strcmp(argv[a], "-c") == 0) {
                 if (a + 1 >= argc) {
                     return usage(argv);
                 }
@@ -563,7 +573,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (ret == NOTHING_EXECUTED) {
+    if (ret == NOTHING_EXECUTED || inspect) {
         if (isatty(0)) {
             prompt_read_history();
             ret = do_repl();

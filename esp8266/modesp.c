@@ -27,20 +27,28 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
-#include <errno.h>
 
 #include "py/nlr.h"
 #include "py/obj.h"
 #include "py/gc.h"
 #include "py/runtime.h"
+#include "py/mperrno.h"
+#include "py/mphal.h"
+#include "drivers/dht/dht.h"
 #include "netutils.h"
 #include "queue.h"
+#include "ets_sys.h"
+#include "uart.h"
 #include "user_interface.h"
 #include "espconn.h"
 #include "spi_flash.h"
-#include "utils.h"
+#include "mem.h"
+#include "espneopixel.h"
+#include "espapa102.h"
+#include "modpyb.h"
+#include "modpybrtc.h"
 
-#define MODESP_ESPCONN (1)
+#define MODESP_ESPCONN (0)
 
 #if MODESP_ESPCONN
 STATIC const mp_obj_type_t esp_socket_type;
@@ -512,25 +520,15 @@ void error_check(bool status, const char *msg) {
     }
 }
 
-STATIC mp_obj_t esp_wifi_mode(mp_uint_t n_args, const mp_obj_t *args) {
-    if (n_args == 0) {
-        return mp_obj_new_int(wifi_get_opmode());
+STATIC mp_obj_t esp_osdebug(mp_obj_t val) {
+    if (val == mp_const_none) {
+        uart_os_config(-1);
     } else {
-        wifi_set_opmode(mp_obj_get_int(args[0]));
-        return mp_const_none;
+        uart_os_config(mp_obj_get_int(val));
     }
+    return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_wifi_mode_obj, 0, 1, esp_wifi_mode);
-
-STATIC mp_obj_t esp_phy_mode(mp_uint_t n_args, const mp_obj_t *args) {
-    if (n_args == 0) {
-        return mp_obj_new_int(wifi_get_phy_mode());
-    } else {
-        wifi_set_phy_mode(mp_obj_get_int(args[0]));
-        return mp_const_none;
-    }
-}
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_phy_mode_obj, 0, 1, esp_phy_mode);
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_osdebug_obj, esp_osdebug);
 
 STATIC mp_obj_t esp_sleep_type(mp_uint_t n_args, const mp_obj_t *args) {
     if (n_args == 0) {
@@ -543,52 +541,193 @@ STATIC mp_obj_t esp_sleep_type(mp_uint_t n_args, const mp_obj_t *args) {
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_sleep_type_obj, 0, 1, esp_sleep_type);
 
 STATIC mp_obj_t esp_deepsleep(mp_uint_t n_args, const mp_obj_t *args) {
-    system_deep_sleep(n_args > 0 ? mp_obj_get_int(args[0]) : 0);
+    uint32_t sleep_us = n_args > 0 ? mp_obj_get_int(args[0]) : 0;
+    // prepare for RTC reset at wake up
+    rtc_prepare_deepsleep(sleep_us);
+    system_deep_sleep_set_option(n_args > 1 ? mp_obj_get_int(args[1]) : 0);
+    system_deep_sleep(sleep_us);
     return mp_const_none;
 }
-STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_deepsleep_obj, 0, 1, esp_deepsleep);
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(esp_deepsleep_obj, 0, 2, esp_deepsleep);
 
 STATIC mp_obj_t esp_flash_id() {
     return mp_obj_new_int(spi_flash_get_id());
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(esp_flash_id_obj, esp_flash_id);
 
-STATIC mp_obj_t esp_flash_read(mp_obj_t offset_in, mp_obj_t len_in) {
+STATIC mp_obj_t esp_flash_read(mp_obj_t offset_in, mp_obj_t len_or_buf_in) {
     mp_int_t offset = mp_obj_get_int(offset_in);
-    mp_int_t len = mp_obj_get_int(len_in);
-    byte *buf = m_new(byte, len);
+
+    mp_int_t len;
+    byte *buf;
+    bool alloc_buf = MP_OBJ_IS_INT(len_or_buf_in);
+
+    if (alloc_buf) {
+        len = mp_obj_get_int(len_or_buf_in);
+        buf = m_new(byte, len);
+    } else {
+        mp_buffer_info_t bufinfo;
+        mp_get_buffer_raise(len_or_buf_in, &bufinfo, MP_BUFFER_WRITE);
+        len = bufinfo.len;
+        buf = bufinfo.buf;
+    }
+
     // We know that allocation will be 4-byte aligned for sure
     SpiFlashOpResult res = spi_flash_read(offset, (uint32_t*)buf, len);
     if (res == SPI_FLASH_RESULT_OK) {
-        return mp_obj_new_bytes(buf, len);
+        if (alloc_buf) {
+            return mp_obj_new_bytes(buf, len);
+        }
+        return mp_const_none;
     }
-    m_del(byte, buf, len);
-    nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(res == SPI_FLASH_RESULT_TIMEOUT ? ETIMEDOUT : EIO)));
+    if (alloc_buf) {
+        m_del(byte, buf, len);
+    }
+    nlr_raise(mp_obj_new_exception_arg1(&mp_type_OSError, MP_OBJ_NEW_SMALL_INT(res == SPI_FLASH_RESULT_TIMEOUT ? MP_ETIMEDOUT : MP_EIO)));
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_2(esp_flash_read_obj, esp_flash_read);
+
+STATIC mp_obj_t esp_flash_write(mp_obj_t offset_in, const mp_obj_t buf_in) {
+    mp_int_t offset = mp_obj_get_int(offset_in);
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
+    if (bufinfo.len & 0x3) {
+        nlr_raise(mp_obj_new_exception_msg(&mp_type_ValueError, "len must be multiple of 4"));
+    }
+    SpiFlashOpResult res = spi_flash_write(offset, bufinfo.buf, bufinfo.len);
+    if (res == SPI_FLASH_RESULT_OK) {
+        return mp_const_none;
+    }
+    nlr_raise(mp_obj_new_exception_arg1(
+        &mp_type_OSError,
+        MP_OBJ_NEW_SMALL_INT(res == SPI_FLASH_RESULT_TIMEOUT ? MP_ETIMEDOUT : MP_EIO)));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(esp_flash_write_obj, esp_flash_write);
+
+STATIC mp_obj_t esp_flash_erase(mp_obj_t sector_in) {
+    mp_int_t sector = mp_obj_get_int(sector_in);
+    SpiFlashOpResult res = spi_flash_erase_sector(sector);
+    if (res == SPI_FLASH_RESULT_OK) {
+        return mp_const_none;
+    }
+    nlr_raise(mp_obj_new_exception_arg1(
+        &mp_type_OSError,
+        MP_OBJ_NEW_SMALL_INT(res == SPI_FLASH_RESULT_TIMEOUT ? MP_ETIMEDOUT : MP_EIO)));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_flash_erase_obj, esp_flash_erase);
+
+STATIC mp_obj_t esp_flash_size(void) {
+    extern char flashchip;
+    // For SDK 1.5.2, either address has shifted and not mirrored in
+    // eagle.rom.addr.v6.ld, or extra initial member was added.
+    SpiFlashChip *flash = (SpiFlashChip*)(&flashchip + 4);
+    #if 0
+    printf("deviceId: %x\n", flash->deviceId);
+    printf("chip_size: %u\n", flash->chip_size);
+    printf("block_size: %u\n", flash->block_size);
+    printf("sector_size: %u\n", flash->sector_size);
+    printf("page_size: %u\n", flash->page_size);
+    printf("status_mask: %u\n", flash->status_mask);
+    #endif
+    return mp_obj_new_int_from_uint(flash->chip_size);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(esp_flash_size_obj, esp_flash_size);
+
+STATIC mp_obj_t esp_check_fw(void) {
+    MD5_CTX ctx;
+    uint32_t *sz_p = (uint32_t*)0x40208ffc;
+    printf("size: %d\n", *sz_p);
+    MD5Init(&ctx);
+    MD5Update(&ctx, (char*)0x40200004, *sz_p - 4);
+    unsigned char digest[16];
+    MD5Final(digest, &ctx);
+    printf("md5: ");
+    for (int i = 0; i < 16; i++) {
+        printf("%02x", digest[i]);
+    }
+    printf("\n");
+    return mp_obj_new_bool(memcmp(digest, (void*)(0x40200000 + *sz_p), sizeof(digest)) == 0);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(esp_check_fw_obj, esp_check_fw);
+
+
+STATIC mp_obj_t esp_neopixel_write_(mp_obj_t pin, mp_obj_t buf, mp_obj_t is800k) {
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf, &bufinfo, MP_BUFFER_READ);
+    esp_neopixel_write(mp_obj_get_pin_obj(pin)->phys_port,
+        (uint8_t*)bufinfo.buf, bufinfo.len, mp_obj_is_true(is800k));
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_3(esp_neopixel_write_obj, esp_neopixel_write_);
+
+#if MICROPY_ESP8266_APA102
+STATIC mp_obj_t esp_apa102_write_(mp_obj_t clockPin, mp_obj_t dataPin, mp_obj_t buf) {
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf, &bufinfo, MP_BUFFER_READ);
+    esp_apa102_write(mp_obj_get_pin_obj(clockPin)->phys_port,
+        mp_obj_get_pin_obj(dataPin)->phys_port,
+        (uint8_t*)bufinfo.buf, bufinfo.len);
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_3(esp_apa102_write_obj, esp_apa102_write_);
+#endif
+
+STATIC mp_obj_t esp_freemem() {
+    return MP_OBJ_NEW_SMALL_INT(system_get_free_heap_size());
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(esp_freemem_obj, esp_freemem);
+
+STATIC mp_obj_t esp_meminfo() {
+    system_print_meminfo();
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(esp_meminfo_obj, esp_meminfo);
+
+STATIC mp_obj_t esp_malloc(mp_obj_t size_in) {
+    return MP_OBJ_NEW_SMALL_INT((mp_uint_t)os_malloc(mp_obj_get_int(size_in)));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_malloc_obj, esp_malloc);
+
+STATIC mp_obj_t esp_free(mp_obj_t addr_in) {
+    os_free((void*)mp_obj_get_int(addr_in));
+    return mp_const_none;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_free_obj, esp_free);
+
+STATIC mp_obj_t esp_esf_free_bufs(mp_obj_t idx_in) {
+    return MP_OBJ_NEW_SMALL_INT(ets_esf_free_bufs(mp_obj_get_int(idx_in)));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(esp_esf_free_bufs_obj, esp_esf_free_bufs);
 
 STATIC const mp_map_elem_t esp_module_globals_table[] = {
     { MP_OBJ_NEW_QSTR(MP_QSTR___name__), MP_OBJ_NEW_QSTR(MP_QSTR_esp) },
 
-    { MP_OBJ_NEW_QSTR(MP_QSTR_wifi_mode), (mp_obj_t)&esp_wifi_mode_obj },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_phy_mode), (mp_obj_t)&esp_phy_mode_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_osdebug), (mp_obj_t)&esp_osdebug_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_sleep_type), (mp_obj_t)&esp_sleep_type_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_deepsleep), (mp_obj_t)&esp_deepsleep_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_flash_id), (mp_obj_t)&esp_flash_id_obj },
     { MP_OBJ_NEW_QSTR(MP_QSTR_flash_read), (mp_obj_t)&esp_flash_read_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_flash_write), (mp_obj_t)&esp_flash_write_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_flash_erase), (mp_obj_t)&esp_flash_erase_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_flash_size), (mp_obj_t)&esp_flash_size_obj },
     #if MODESP_ESPCONN
     { MP_OBJ_NEW_QSTR(MP_QSTR_socket), (mp_obj_t)&esp_socket_type },
     { MP_OBJ_NEW_QSTR(MP_QSTR_getaddrinfo), (mp_obj_t)&esp_getaddrinfo_obj },
     #endif
+    { MP_OBJ_NEW_QSTR(MP_QSTR_neopixel_write), (mp_obj_t)&esp_neopixel_write_obj },
+    #if MICROPY_ESP8266_APA102
+    { MP_OBJ_NEW_QSTR(MP_QSTR_apa102_write), (mp_obj_t)&esp_apa102_write_obj },
+    #endif
+    { MP_OBJ_NEW_QSTR(MP_QSTR_dht_readinto), (mp_obj_t)&dht_readinto_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_freemem), (mp_obj_t)&esp_freemem_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_meminfo), (mp_obj_t)&esp_meminfo_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_check_fw), (mp_obj_t)&esp_check_fw_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_info), (mp_obj_t)&pyb_info_obj }, // TODO delete/rename/move elsewhere
+    { MP_OBJ_NEW_QSTR(MP_QSTR_malloc), (mp_obj_t)&esp_malloc_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_free), (mp_obj_t)&esp_free_obj },
+    { MP_OBJ_NEW_QSTR(MP_QSTR_esf_free_bufs), (mp_obj_t)&esp_esf_free_bufs_obj },
 
 #if MODESP_INCLUDE_CONSTANTS
-    { MP_OBJ_NEW_QSTR(MP_QSTR_MODE_11B),
-        MP_OBJ_NEW_SMALL_INT(PHY_MODE_11B) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_MODE_11G),
-        MP_OBJ_NEW_SMALL_INT(PHY_MODE_11G) },
-    { MP_OBJ_NEW_QSTR(MP_QSTR_MODE_11N),
-        MP_OBJ_NEW_SMALL_INT(PHY_MODE_11N) },
-
     { MP_OBJ_NEW_QSTR(MP_QSTR_SLEEP_NONE),
         MP_OBJ_NEW_SMALL_INT(NONE_SLEEP_T) },
     { MP_OBJ_NEW_QSTR(MP_QSTR_SLEEP_LIGHT),

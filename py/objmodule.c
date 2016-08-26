@@ -137,10 +137,10 @@ STATIC const mp_rom_map_elem_t mp_builtin_module_table[] = {
     { MP_ROM_QSTR(MP_QSTR_array), MP_ROM_PTR(&mp_module_array) },
 #endif
 #if MICROPY_PY_IO
-    { MP_ROM_QSTR(MP_QSTR__io), MP_ROM_PTR(&mp_module_io) },
+    { MP_ROM_QSTR(MP_QSTR_uio), MP_ROM_PTR(&mp_module_io) },
 #endif
 #if MICROPY_PY_COLLECTIONS
-    { MP_ROM_QSTR(MP_QSTR__collections), MP_ROM_PTR(&mp_module_collections) },
+    { MP_ROM_QSTR(MP_QSTR_ucollections), MP_ROM_PTR(&mp_module_collections) },
 #endif
 #if MICROPY_PY_STRUCT
     { MP_ROM_QSTR(MP_QSTR_ustruct), MP_ROM_PTR(&mp_module_ustruct) },
@@ -160,9 +160,15 @@ STATIC const mp_rom_map_elem_t mp_builtin_module_table[] = {
 #if MICROPY_PY_GC && MICROPY_ENABLE_GC
     { MP_ROM_QSTR(MP_QSTR_gc), MP_ROM_PTR(&mp_module_gc) },
 #endif
+#if MICROPY_PY_THREAD
+    { MP_ROM_QSTR(MP_QSTR__thread), MP_ROM_PTR(&mp_module_thread) },
+#endif
 
     // extmod modules
 
+#if MICROPY_PY_UERRNO
+    { MP_ROM_QSTR(MP_QSTR_uerrno), MP_ROM_PTR(&mp_module_uerrno) },
+#endif
 #if MICROPY_PY_UCTYPES
     { MP_ROM_QSTR(MP_QSTR_uctypes), MP_ROM_PTR(&mp_module_uctypes) },
 #endif
@@ -192,6 +198,18 @@ STATIC const mp_rom_map_elem_t mp_builtin_module_table[] = {
 #endif
 #if MICROPY_PY_LWIP
     { MP_ROM_QSTR(MP_QSTR_lwip), MP_ROM_PTR(&mp_module_lwip) },
+#endif
+#if MICROPY_PY_WEBSOCKET
+    { MP_ROM_QSTR(MP_QSTR_websocket), MP_ROM_PTR(&mp_module_websocket) },
+#endif
+#if MICROPY_PY_WEBREPL
+    { MP_ROM_QSTR(MP_QSTR__webrepl), MP_ROM_PTR(&mp_module_webrepl) },
+#endif
+#if MICROPY_PY_FRAMEBUF
+    { MP_ROM_QSTR(MP_QSTR_framebuf), MP_ROM_PTR(&mp_module_framebuf) },
+#endif
+#if MICROPY_PY_BTREE
+    { MP_ROM_QSTR(MP_QSTR_btree), MP_ROM_PTR(&mp_module_btree) },
 #endif
 
     // extra builtin modules as defined by a port

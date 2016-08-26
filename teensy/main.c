@@ -253,6 +253,7 @@ int main(void) {
     #define SCB_CCR_STKALIGN (1 << 9)
     SCB_CCR |= SCB_CCR_STKALIGN;
 
+    mp_stack_ctrl_init();
     mp_stack_set_limit(10240);
 
     pinMode(LED_BUILTIN, OUTPUT);
@@ -301,7 +302,7 @@ soft_reset:
 #endif
 
 #if MICROPY_MODULE_FROZEN
-    pyexec_frozen_module("boot");
+    pyexec_frozen_module("boot.py");
 #else
     if (!pyexec_file("/boot.py")) {
         flash_error(4);
@@ -313,7 +314,7 @@ soft_reset:
 
     // run main script
 #if MICROPY_MODULE_FROZEN
-    pyexec_frozen_module("main");
+    pyexec_frozen_module("main.py");
 #else
     {
         vstr_t *vstr = vstr_new();

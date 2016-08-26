@@ -404,17 +404,17 @@ STATIC mp_obj_t fun_viper_call(mp_obj_t self_in, size_t n_args, size_t n_kw, con
     if (n_args == 0) {
         ret = ((viper_fun_0_t)fun)();
     } else if (n_args == 1) {
-        ret = ((viper_fun_1_t)fun)(mp_convert_obj_to_native(args[0], self->type_sig >> 2));
+        ret = ((viper_fun_1_t)fun)(mp_convert_obj_to_native(args[0], self->type_sig >> 4));
     } else if (n_args == 2) {
-        ret = ((viper_fun_2_t)fun)(mp_convert_obj_to_native(args[0], self->type_sig >> 2), mp_convert_obj_to_native(args[1], self->type_sig >> 4));
+        ret = ((viper_fun_2_t)fun)(mp_convert_obj_to_native(args[0], self->type_sig >> 4), mp_convert_obj_to_native(args[1], self->type_sig >> 8));
     } else if (n_args == 3) {
-        ret = ((viper_fun_3_t)fun)(mp_convert_obj_to_native(args[0], self->type_sig >> 2), mp_convert_obj_to_native(args[1], self->type_sig >> 4), mp_convert_obj_to_native(args[2], self->type_sig >> 6));
+        ret = ((viper_fun_3_t)fun)(mp_convert_obj_to_native(args[0], self->type_sig >> 4), mp_convert_obj_to_native(args[1], self->type_sig >> 8), mp_convert_obj_to_native(args[2], self->type_sig >> 12));
     } else if (n_args == 4) {
         ret = ((viper_fun_4_t)fun)(
-            mp_convert_obj_to_native(args[0], self->type_sig >> 2),
-            mp_convert_obj_to_native(args[1], self->type_sig >> 4),
-            mp_convert_obj_to_native(args[2], self->type_sig >> 6),
-            mp_convert_obj_to_native(args[3], self->type_sig >> 8)
+            mp_convert_obj_to_native(args[0], self->type_sig >> 4),
+            mp_convert_obj_to_native(args[1], self->type_sig >> 8),
+            mp_convert_obj_to_native(args[2], self->type_sig >> 12),
+            mp_convert_obj_to_native(args[3], self->type_sig >> 16)
         );
     } else {
         // TODO 5 or more arguments not supported for viper call
@@ -452,12 +452,14 @@ typedef struct _mp_obj_fun_asm_t {
     mp_obj_base_t base;
     mp_uint_t n_args;
     void *fun_data; // GC must be able to trace this pointer
+    mp_uint_t type_sig;
 } mp_obj_fun_asm_t;
 
 typedef mp_uint_t (*inline_asm_fun_0_t)(void);
 typedef mp_uint_t (*inline_asm_fun_1_t)(mp_uint_t);
 typedef mp_uint_t (*inline_asm_fun_2_t)(mp_uint_t, mp_uint_t);
 typedef mp_uint_t (*inline_asm_fun_3_t)(mp_uint_t, mp_uint_t, mp_uint_t);
+typedef mp_uint_t (*inline_asm_fun_4_t)(mp_uint_t, mp_uint_t, mp_uint_t, mp_uint_t);
 
 // convert a Micro Python object to a sensible value for inline asm
 STATIC mp_uint_t convert_obj_for_inline_asm(mp_obj_t obj) {
@@ -509,11 +511,6 @@ STATIC mp_uint_t convert_obj_for_inline_asm(mp_obj_t obj) {
     }
 }
 
-// convert a return value from inline asm to a sensible Micro Python object
-STATIC mp_obj_t convert_val_from_inline_asm(mp_uint_t val) {
-    return MP_OBJ_NEW_SMALL_INT(val);
-}
-
 STATIC mp_obj_t fun_asm_call(mp_obj_t self_in, size_t n_args, size_t n_kw, const mp_obj_t *args) {
     mp_obj_fun_asm_t *self = self_in;
 
@@ -531,11 +528,17 @@ STATIC mp_obj_t fun_asm_call(mp_obj_t self_in, size_t n_args, size_t n_kw, const
     } else if (n_args == 3) {
         ret = ((inline_asm_fun_3_t)fun)(convert_obj_for_inline_asm(args[0]), convert_obj_for_inline_asm(args[1]), convert_obj_for_inline_asm(args[2]));
     } else {
-        assert(0);
-        ret = 0;
+        // compiler allows at most 4 arguments
+        assert(n_args == 4);
+        ret = ((inline_asm_fun_4_t)fun)(
+            convert_obj_for_inline_asm(args[0]),
+            convert_obj_for_inline_asm(args[1]),
+            convert_obj_for_inline_asm(args[2]),
+            convert_obj_for_inline_asm(args[3])
+        );
     }
 
-    return convert_val_from_inline_asm(ret);
+    return mp_convert_native_to_obj(ret, self->type_sig);
 }
 
 STATIC const mp_obj_type_t mp_type_fun_asm = {
@@ -545,11 +548,12 @@ STATIC const mp_obj_type_t mp_type_fun_asm = {
     .unary_op = mp_generic_unary_op,
 };
 
-mp_obj_t mp_obj_new_fun_asm(mp_uint_t n_args, void *fun_data) {
+mp_obj_t mp_obj_new_fun_asm(mp_uint_t n_args, void *fun_data, mp_uint_t type_sig) {
     mp_obj_fun_asm_t *o = m_new_obj(mp_obj_fun_asm_t);
     o->base.type = &mp_type_fun_asm;
     o->n_args = n_args;
     o->fun_data = fun_data;
+    o->type_sig = type_sig;
     return o;
 }
 

@@ -27,6 +27,7 @@
 // options to control how Micro Python is built
 
 #define MICROPY_ALLOC_PATH_MAX      (PATH_MAX)
+#define MICROPY_PERSISTENT_CODE_LOAD (1)
 #if !defined(MICROPY_EMIT_X64) && defined(__x86_64__)
     #define MICROPY_EMIT_X64        (1)
 #endif
@@ -50,7 +51,9 @@
 #define MICROPY_MALLOC_USES_ALLOCATED_SIZE (1)
 #define MICROPY_MEM_STATS           (1)
 #define MICROPY_DEBUG_PRINTERS      (1)
-#define MICROPY_DEBUG_STDERR        (1)
+// Printing debug to stderr may give tests which
+// check stdout a chance to pass, etc.
+#define MICROPY_DEBUG_PRINTER_DEST  mp_stderr_print
 #define MICROPY_USE_READLINE_HISTORY (1)
 #define MICROPY_HELPER_REPL         (1)
 #define MICROPY_REPL_EMACS_KEYS     (1)
@@ -60,12 +63,17 @@
 #define MICROPY_FLOAT_IMPL          (MICROPY_FLOAT_IMPL_DOUBLE)
 #define MICROPY_LONGINT_IMPL        (MICROPY_LONGINT_IMPL_MPZ)
 #define MICROPY_STREAMS_NON_BLOCK   (1)
+#define MICROPY_STREAMS_POSIX_API   (1)
 #define MICROPY_OPT_COMPUTED_GOTO   (1)
+#ifndef MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE
 #define MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE (1)
+#endif
 #define MICROPY_CAN_OVERRIDE_BUILTINS (1)
 #define MICROPY_PY_FUNCTION_ATTRS   (1)
 #define MICROPY_PY_DESCRIPTORS      (1)
 #define MICROPY_PY_BUILTINS_STR_UNICODE (1)
+#define MICROPY_PY_BUILTINS_STR_CENTER (1)
+#define MICROPY_PY_BUILTINS_STR_PARTITION (1)
 #define MICROPY_PY_BUILTINS_STR_SPLITLINES (1)
 #define MICROPY_PY_BUILTINS_MEMORYVIEW (1)
 #define MICROPY_PY_BUILTINS_FROZENSET (1)
@@ -91,31 +99,50 @@
 #define MICROPY_PY_CMATH            (1)
 #define MICROPY_PY_IO_FILEIO        (1)
 #define MICROPY_PY_GC_COLLECT_RETVAL (1)
-#define MICROPY_MODULE_FROZEN       (1)
+#define MICROPY_MODULE_FROZEN_STR   (1)
 
 #define MICROPY_STACKLESS           (0)
 #define MICROPY_STACKLESS_STRICT    (0)
 
 #define MICROPY_PY_OS_STATVFS       (1)
+#define MICROPY_PY_UTIME            (1)
+#define MICROPY_PY_UERRNO           (1)
 #define MICROPY_PY_UCTYPES          (1)
 #define MICROPY_PY_UZLIB            (1)
 #define MICROPY_PY_UJSON            (1)
 #define MICROPY_PY_URE              (1)
 #define MICROPY_PY_UHEAPQ           (1)
 #define MICROPY_PY_UHASHLIB         (1)
+#if MICROPY_PY_USSL && MICROPY_SSL_AXTLS
+#define MICROPY_PY_UHASHLIB_SHA1    (1)
+#endif
 #define MICROPY_PY_UBINASCII        (1)
+#define MICROPY_PY_UBINASCII_CRC32  (1)
 #define MICROPY_PY_URANDOM          (1)
 #ifndef MICROPY_PY_USELECT
 #define MICROPY_PY_USELECT          (1)
 #endif
+#define MICROPY_PY_WEBSOCKET        (1)
 #define MICROPY_PY_MACHINE          (1)
+#define MICROPY_PY_MACHINE_PULSE    (1)
 #define MICROPY_MACHINE_MEM_GET_READ_ADDR   mod_machine_mem_get_addr
 #define MICROPY_MACHINE_MEM_GET_WRITE_ADDR  mod_machine_mem_get_addr
+
+#define MICROPY_FATFS_ENABLE_LFN       (1)
+#define MICROPY_FATFS_RPATH            (2)
+// Can't have less than 3 values because diskio.h uses volume numbers
+// as volume types and PD_USER == 2.
+#define MICROPY_FATFS_VOLUMES          (3)
+#define MICROPY_FATFS_MAX_SS           (4096)
+#define MICROPY_FATFS_LFN_CODE_PAGE    (437) /* 1=SFN/ANSI 437=LFN/U.S.(OEM) */
+#define MICROPY_FSUSERMOUNT            (0)
+#define MICROPY_VFS_FAT                (0)
 
 // Define to MICROPY_ERROR_REPORTING_DETAILED to get function, etc.
 // names in exception messages (may require more RAM).
 #define MICROPY_ERROR_REPORTING     (MICROPY_ERROR_REPORTING_DETAILED)
 #define MICROPY_WARNINGS            (1)
+#define MICROPY_PY_STR_BYTES_CMP_WARN (1)
 
 // Define to 1 to use undertested inefficient GC helper implementation
 // (if more efficient arch-specific one is not available).
@@ -150,10 +177,10 @@ extern const struct _mp_obj_module_t mp_module_jni;
 #else
 #define MICROPY_PY_JNI_DEF
 #endif
-#if MICROPY_PY_TIME
-#define MICROPY_PY_TIME_DEF { MP_ROM_QSTR(MP_QSTR_utime), MP_ROM_PTR(&mp_module_time) },
+#if MICROPY_PY_UTIME
+#define MICROPY_PY_UTIME_DEF { MP_ROM_QSTR(MP_QSTR_utime), MP_ROM_PTR(&mp_module_time) },
 #else
-#define MICROPY_PY_TIME_DEF
+#define MICROPY_PY_UTIME_DEF
 #endif
 #if MICROPY_PY_TERMIOS
 #define MICROPY_PY_TERMIOS_DEF { MP_ROM_QSTR(MP_QSTR_termios), MP_ROM_PTR(&mp_module_termios) },
@@ -174,7 +201,7 @@ extern const struct _mp_obj_module_t mp_module_jni;
 #define MICROPY_PORT_BUILTIN_MODULES \
     MICROPY_PY_FFI_DEF \
     MICROPY_PY_JNI_DEF \
-    MICROPY_PY_TIME_DEF \
+    MICROPY_PY_UTIME_DEF \
     MICROPY_PY_SOCKET_DEF \
     { MP_ROM_QSTR(MP_QSTR_umachine), MP_ROM_PTR(&mp_module_machine) }, \
     { MP_ROM_QSTR(MP_QSTR_uos), MP_ROM_PTR(&mp_module_os) }, \
@@ -205,14 +232,16 @@ typedef long long mp_off_t;
 typedef long mp_off_t;
 #endif
 
-typedef void *machine_ptr_t; // must be of pointer size
-typedef const void *machine_const_ptr_t; // must be of pointer size
-
 void mp_unix_alloc_exec(mp_uint_t min_size, void** ptr, mp_uint_t *size);
 void mp_unix_free_exec(void *ptr, mp_uint_t size);
 void mp_unix_mark_exec(void);
 #define MP_PLAT_ALLOC_EXEC(min_size, ptr, size) mp_unix_alloc_exec(min_size, ptr, size)
 #define MP_PLAT_FREE_EXEC(ptr, size) mp_unix_free_exec(ptr, size)
+#ifndef MICROPY_FORCE_PLAT_ALLOC_EXEC
+// Use MP_PLAT_ALLOC_EXEC for any executable memory allocation, including for FFI
+// (overriding libffi own implementation)
+#define MICROPY_FORCE_PLAT_ALLOC_EXEC (1)
+#endif
 
 #if MICROPY_PY_OS_DUPTERM
 #define MP_PLAT_PRINT_STRN(str, len) mp_hal_stdout_tx_strn_cooked(str, len)
@@ -239,8 +268,6 @@ void mp_unix_mark_exec(void);
 #endif
 #endif
 
-extern const struct _mp_obj_fun_builtin_t mp_builtin_input_obj;
-extern const struct _mp_obj_fun_builtin_t mp_builtin_open_obj;
 #define MICROPY_PORT_BUILTINS \
     { MP_ROM_QSTR(MP_QSTR_input), MP_ROM_PTR(&mp_builtin_input_obj) }, \
     { MP_ROM_QSTR(MP_QSTR_open), MP_ROM_PTR(&mp_builtin_open_obj) },
@@ -274,4 +301,9 @@ extern const struct _mp_obj_fun_builtin_t mp_builtin_open_obj;
 // dirent->d_ino can disable the use of this field.
 #ifndef _DIRENT_HAVE_D_INO
 #define _DIRENT_HAVE_D_INO (1)
+#endif
+
+#ifndef __APPLE__
+// For debugging purposes, make printf() available to any source file.
+#include <stdio.h>
 #endif

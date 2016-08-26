@@ -77,7 +77,7 @@
 #define MICROPY_PY_CMATH            (1)
 #define MICROPY_PY_IO_FILEIO        (1)
 #define MICROPY_PY_GC_COLLECT_RETVAL (1)
-#define MICROPY_MODULE_FROZEN       (0)
+#define MICROPY_MODULE_FROZEN_STR   (0)
 
 #define MICROPY_STACKLESS           (0)
 #define MICROPY_STACKLESS_STRICT    (0)
@@ -89,6 +89,8 @@
 #define MICROPY_PY_UHEAPQ           (1)
 #define MICROPY_PY_UHASHLIB         (1)
 #define MICROPY_PY_UBINASCII        (1)
+#define MICROPY_PY_URANDOM          (1)
+#define MICROPY_PY_UTIME            (1)
 #define MICROPY_PY_MACHINE          (1)
 
 #define MICROPY_ERROR_REPORTING     (MICROPY_ERROR_REPORTING_DETAILED)
@@ -136,9 +138,6 @@ typedef long long mp_off_t;
 typedef long mp_off_t;
 #endif
 
-typedef void *machine_ptr_t; // must be of pointer size
-typedef const void *machine_const_ptr_t; // must be of pointer size
-
 #if MICROPY_PY_OS_DUPTERM
 #define MP_PLAT_PRINT_STRN(str, len) mp_hal_stdout_tx_strn_cooked(str, len)
 void mp_hal_dupterm_tx_strn(const char *str, size_t len);
@@ -148,8 +147,6 @@ void mp_hal_dupterm_tx_strn(const char *str, size_t len);
 #define mp_hal_dupterm_tx_strn(s, l)
 #endif
 
-extern const struct _mp_obj_fun_builtin_t mp_builtin_input_obj;
-extern const struct _mp_obj_fun_builtin_t mp_builtin_open_obj;
 #define MICROPY_PORT_BUILTINS \
     { MP_OBJ_NEW_QSTR(MP_QSTR_input), (mp_obj_t)&mp_builtin_input_obj }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_open), (mp_obj_t)&mp_builtin_open_obj },
@@ -158,6 +155,7 @@ extern const struct _mp_obj_module_t mp_module_os;
 extern const struct _mp_obj_module_t mp_module_time;
 #define MICROPY_PORT_BUILTIN_MODULES \
     { MP_OBJ_NEW_QSTR(MP_QSTR_utime), (mp_obj_t)&mp_module_time }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_umachine), (mp_obj_t)&mp_module_machine }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_uos), (mp_obj_t)&mp_module_os }, \
 
 #if MICROPY_USE_READLINE == 1
@@ -177,6 +175,10 @@ extern const struct _mp_obj_module_t mp_module_time;
 #include "init.h"
 #include "sleep.h"
 
+#ifdef __GNUC__
+#define MP_NOINLINE __attribute__((noinline))
+#endif
+
 // MSVC specifics
 #ifdef _MSC_VER
 
@@ -190,6 +192,7 @@ extern const struct _mp_obj_module_t mp_module_time;
 // CL specific overrides from mpconfig
 
 #define NORETURN                    __declspec(noreturn)
+#define MP_NOINLINE                 __declspec(noinline)
 #define MP_LIKELY(x)                (x)
 #define MP_UNLIKELY(x)              (x)
 #define MICROPY_PORT_CONSTANTS      { "dummy", 0 } //can't have zero-sized array

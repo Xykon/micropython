@@ -171,6 +171,7 @@ void mp_setup_code_state(mp_code_state *code_state, mp_obj_fun_bc_t *self, size_
         const mp_obj_t *arg_names = (const mp_obj_t*)code_state->const_table;
 
         for (size_t i = 0; i < n_kw; i++) {
+            // the keys in kwargs are expected to be qstr objects
             mp_obj_t wanted_arg_name = kwargs[2 * i];
             for (size_t j = 0; j < n_pos_args + n_kwonly_args; j++) {
                 if (wanted_arg_name == arg_names[j]) {
@@ -304,7 +305,7 @@ STATIC const byte opcode_format_table[64] = {
     OC4(O, O, U, U), // 0x38-0x3b
     OC4(U, O, B, O), // 0x3c-0x3f
     OC4(O, B, B, O), // 0x40-0x43
-    OC4(B, B, O, B), // 0x44-0x47
+    OC4(B, B, O, U), // 0x44-0x47
     OC4(U, U, U, U), // 0x48-0x4b
     OC4(U, U, U, U), // 0x4c-0x4f
     OC4(V, V, V, V), // 0x50-0x53
@@ -355,7 +356,7 @@ STATIC const byte opcode_format_table[64] = {
 
     OC4(B, B, B, B), // 0xf0-0xf3
     OC4(B, B, B, B), // 0xf4-0xf7
-    OC4(B, B, U, U), // 0xf8-0xfb
+    OC4(B, B, B, U), // 0xf8-0xfb
     OC4(U, U, U, U), // 0xfc-0xff
 };
 #undef OC4

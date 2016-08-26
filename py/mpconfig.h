@@ -107,6 +107,21 @@
 #define MICROPY_ALLOC_GC_STACK_SIZE (64)
 #endif
 
+// Be conservative and always clear to zero newly (re)allocated memory in the GC.
+// This helps eliminate stray pointers that hold on to memory that's no longer
+// used.  It decreases performance due to unnecessary memory clearing.
+// TODO Do analysis to understand why some memory is not properly cleared and
+// find a more efficient way to clear it.
+#ifndef MICROPY_GC_CONSERVATIVE_CLEAR
+#define MICROPY_GC_CONSERVATIVE_CLEAR (1)
+#endif
+
+// Support automatic GC when reaching allocation threshold,
+// configurable by gc.threshold().
+#ifndef MICROPY_GC_ALLOC_THRESHOLD
+#define MICROPY_GC_ALLOC_THRESHOLD (1)
+#endif
+
 // Number of bytes to allocate initially when creating new chunks to store
 // interned string data.  Smaller numbers lead to more chunks being needed
 // and more wastage at the end of the chunk.  Larger numbers lead to wasted
@@ -234,7 +249,7 @@
 // Whether generated code can persist independently of the VM/runtime instance
 // This is enabled automatically when needed by other features
 #ifndef MICROPY_PERSISTENT_CODE
-#define MICROPY_PERSISTENT_CODE (MICROPY_PERSISTENT_CODE_LOAD || MICROPY_PERSISTENT_CODE_SAVE)
+#define MICROPY_PERSISTENT_CODE (MICROPY_PERSISTENT_CODE_LOAD || MICROPY_PERSISTENT_CODE_SAVE || MICROPY_MODULE_FROZEN_MPY)
 #endif
 
 // Whether to emit x64 native code
@@ -281,6 +296,20 @@
 // Whether to include the compiler
 #ifndef MICROPY_ENABLE_COMPILER
 #define MICROPY_ENABLE_COMPILER (1)
+#endif
+
+// Whether the compiler is dynamically configurable (ie at runtime)
+#ifndef MICROPY_DYNAMIC_COMPILER
+#define MICROPY_DYNAMIC_COMPILER (0)
+#endif
+
+// Configure dynamic compiler macros
+#if MICROPY_DYNAMIC_COMPILER
+#define MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE_DYNAMIC (mp_dynamic_compiler.opt_cache_map_lookup_in_bytecode)
+#define MICROPY_PY_BUILTINS_STR_UNICODE_DYNAMIC (mp_dynamic_compiler.py_builtins_str_unicode)
+#else
+#define MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE_DYNAMIC MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE
+#define MICROPY_PY_BUILTINS_STR_UNICODE_DYNAMIC MICROPY_PY_BUILTINS_STR_UNICODE
 #endif
 
 // Whether to enable constant folding; eg 1+2 rewritten as 3
@@ -342,8 +371,30 @@
 #define MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE (0)
 #endif
 
+// Whether to use fast versions of bitwise operations (and, or, xor) when the
+// arguments are both positive.  Increases Thumb2 code size by about 250 bytes.
+#ifndef MICROPY_OPT_MPZ_BITWISE
+#define MICROPY_OPT_MPZ_BITWISE (0)
+#endif
+
 /*****************************************************************************/
 /* Python internal features                                                  */
+
+// Hook for the VM at the start of the opcode loop (can contain variable
+// definitions usable by the other hook functions)
+#ifndef MICROPY_VM_HOOK_INIT
+#define MICROPY_VM_HOOK_INIT
+#endif
+
+// Hook for the VM during the opcode loop (but only after jump opcodes)
+#ifndef MICROPY_VM_HOOK_LOOP
+#define MICROPY_VM_HOOK_LOOP
+#endif
+
+// Hook for the VM just before return opcode is finished being interpreted
+#ifndef MICROPY_VM_HOOK_RETURN
+#define MICROPY_VM_HOOK_RETURN
+#endif
 
 // Whether to include the garbage collector
 #ifndef MICROPY_ENABLE_GC
@@ -480,6 +531,12 @@ typedef double mp_float_t;
 #define MICROPY_STREAMS_NON_BLOCK (0)
 #endif
 
+// Whether to provide stream functions with POSIX-like signatures
+// (useful for porting existing libraries to MicroPython).
+#ifndef MICROPY_STREAMS_POSIX_API
+#define MICROPY_STREAMS_POSIX_API (0)
+#endif
+
 // Whether to call __init__ when importing builtin modules for the first time
 #ifndef MICROPY_MODULE_BUILTIN_INIT
 #define MICROPY_MODULE_BUILTIN_INIT (0)
@@ -490,9 +547,19 @@ typedef double mp_float_t;
 #define MICROPY_MODULE_WEAK_LINKS (0)
 #endif
 
-// Whether frozen modules are supported
+// Whether frozen modules are supported in the form of strings
+#ifndef MICROPY_MODULE_FROZEN_STR
+#define MICROPY_MODULE_FROZEN_STR (0)
+#endif
+
+// Whether frozen modules are supported in the form of .mpy files
+#ifndef MICROPY_MODULE_FROZEN_MPY
+#define MICROPY_MODULE_FROZEN_MPY (0)
+#endif
+
+// Convenience macro for whether frozen modules are supported
 #ifndef MICROPY_MODULE_FROZEN
-#define MICROPY_MODULE_FROZEN (0)
+#define MICROPY_MODULE_FROZEN (MICROPY_MODULE_FROZEN_STR || MICROPY_MODULE_FROZEN_MPY)
 #endif
 
 // Whether you can override builtins in the builtins module
@@ -507,6 +574,11 @@ typedef double mp_float_t;
 // behaviour (usually segfault) if the first argument is the wrong type.
 #ifndef MICROPY_BUILTIN_METHOD_CHECK_SELF_ARG
 #define MICROPY_BUILTIN_METHOD_CHECK_SELF_ARG (1)
+#endif
+
+// Whether to use internally defined errno's (otherwise system provided ones)
+#ifndef MICROPY_USE_INTERNAL_ERRNO
+#define MICROPY_USE_INTERNAL_ERRNO (0)
 #endif
 
 // Support for user-space VFS mount (selected ports)
@@ -528,9 +600,29 @@ typedef double mp_float_t;
 #define MICROPY_PY_DESCRIPTORS (0)
 #endif
 
+// Support for async/await/async for/async with
+#ifndef MICROPY_PY_ASYNC_AWAIT
+#define MICROPY_PY_ASYNC_AWAIT (1)
+#endif
+
+// Issue a warning when comparing str and bytes objects
+#ifndef MICROPY_PY_STR_BYTES_CMP_WARN
+#define MICROPY_PY_STR_BYTES_CMP_WARN (0)
+#endif
+
 // Whether str object is proper unicode
 #ifndef MICROPY_PY_BUILTINS_STR_UNICODE
 #define MICROPY_PY_BUILTINS_STR_UNICODE (0)
+#endif
+
+// Whether str.center() method provided
+#ifndef MICROPY_PY_BUILTINS_STR_CENTER
+#define MICROPY_PY_BUILTINS_STR_CENTER (0)
+#endif
+
+// Whether str.partition()/str.rpartition() method provided
+#ifndef MICROPY_PY_BUILTINS_STR_PARTITION
+#define MICROPY_PY_BUILTINS_STR_PARTITION (0)
 #endif
 
 // Whether str.splitlines() method provided
@@ -711,6 +803,11 @@ typedef double mp_float_t;
 #define MICROPY_PY_IO_BYTESIO (1)
 #endif
 
+// Whether to provide "io.BufferedWriter" class
+#ifndef MICROPY_PY_IO_BUFFEREDWRITER
+#define MICROPY_PY_IO_BUFFEREDWRITER (0)
+#endif
+
 // Whether to provide "struct" module
 #ifndef MICROPY_PY_STRUCT
 #define MICROPY_PY_STRUCT (1)
@@ -753,6 +850,22 @@ typedef double mp_float_t;
 #define MICROPY_PY_SYS_STDIO_BUFFER (0)
 #endif
 
+// Whether to provide "uerrno" module
+#ifndef MICROPY_PY_UERRNO
+#define MICROPY_PY_UERRNO (0)
+#endif
+
+// Whether to provide "_thread" module
+#ifndef MICROPY_PY_THREAD
+#define MICROPY_PY_THREAD (0)
+#endif
+
+// Whether to make the VM/runtime thread-safe using a global lock
+// If not enabled then thread safety must be provided at the Python level
+#ifndef MICROPY_PY_THREAD_GIL
+#define MICROPY_PY_THREAD_GIL (MICROPY_PY_THREAD)
+#endif
+
 // Extended modules
 
 #ifndef MICROPY_PY_UCTYPES
@@ -783,16 +896,47 @@ typedef double mp_float_t;
 #define MICROPY_PY_UBINASCII (0)
 #endif
 
+// Depends on MICROPY_PY_UZLIB
+#ifndef MICROPY_PY_UBINASCII_CRC32
+#define MICROPY_PY_UBINASCII_CRC32 (0)
+#endif
+
 #ifndef MICROPY_PY_URANDOM
 #define MICROPY_PY_URANDOM (0)
+#endif
+
+// Whether to include: randrange, randint, choice, random, uniform
+#ifndef MICROPY_PY_URANDOM_EXTRA_FUNCS
+#define MICROPY_PY_URANDOM_EXTRA_FUNCS (0)
 #endif
 
 #ifndef MICROPY_PY_MACHINE
 #define MICROPY_PY_MACHINE (0)
 #endif
 
+// Whether to include: time_pulse_us
+#ifndef MICROPY_PY_MACHINE_PULSE
+#define MICROPY_PY_MACHINE_PULSE (0)
+#endif
+
+#ifndef MICROPY_PY_MACHINE_I2C
+#define MICROPY_PY_MACHINE_I2C (0)
+#endif
+
 #ifndef MICROPY_PY_USSL
 #define MICROPY_PY_USSL (0)
+#endif
+
+#ifndef MICROPY_PY_WEBSOCKET
+#define MICROPY_PY_WEBSOCKET (0)
+#endif
+
+#ifndef MICROPY_PY_FRAMEBUF
+#define MICROPY_PY_FRAMEBUF (0)
+#endif
+
+#ifndef MICROPY_PY_BTREE
+#define MICROPY_PY_BTREE (0)
 #endif
 
 /*****************************************************************************/
@@ -936,6 +1080,16 @@ typedef double mp_float_t;
 // Modifier for weak functions
 #ifndef MP_WEAK
 #define MP_WEAK __attribute__((weak))
+#endif
+
+// Modifier for functions which should be never inlined
+#ifndef MP_NOINLINE
+#define MP_NOINLINE __attribute__((noinline))
+#endif
+
+// Modifier for functions which should be always inlined
+#ifndef MP_ALWAYSINLINE
+#define MP_ALWAYSINLINE __attribute__((always_inline))
 #endif
 
 // Condition is likely to be true, to help branch prediction

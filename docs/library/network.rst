@@ -30,27 +30,27 @@ For example::
 
 .. only:: port_wipy
 
-    .. _network.server:
+    .. _network.Server:
 
-    class server
+    class Server
     ============
 
-    The server class controls the behaviour and the configuration of the FTP and telnet
+    The ``Server`` class controls the behaviour and the configuration of the FTP and telnet
     services running on the WiPy. Any changes performed using this class' methods will
     affect both.
 
     Example::
 
-    import network
-    s = network.server()
-    s.deinit() # disable the server
-    # enable the server again with new settings
-    s.init(login=('user', 'password'), timeout=600)
+        import network
+        server = network.Server()
+        server.deinit() # disable the server
+        # enable the server again with new settings
+        server.init(login=('user', 'password'), timeout=600)
 
     Constructors
     ------------
 
-    .. class:: network.server(id, ...)
+    .. class:: network.Server(id, ...)
 
        Create a server instance, see ``init`` for parameters of initialization.
 
@@ -229,25 +229,51 @@ For example::
 
 .. only:: port_esp8266
 
+    Functions
+    =========
+
+    .. function:: phy_mode([mode])
+
+        Get or set the PHY mode.
+
+        If the ``mode`` parameter is provided, sets the mode to its value. If
+        the function is called without parameters, returns the current mode.
+
+        The possible modes are defined as constants:
+            * ``MODE_11B`` -- IEEE 802.11b,
+            * ``MODE_11G`` -- IEEE 802.11g,
+            * ``MODE_11N`` -- IEEE 802.11n.
+
     class WLAN
     ==========
 
     This class provides a driver for WiFi network processor in the ESP8266.  Example usage::
 
         import network
-        # setup as a station
-        nic = network.WLAN()
+        # enable station interface and connect to WiFi access point
+        nic = network.WLAN(network.STA_IF)
+        nic.active(True)
         nic.connect('your-ssid', 'your-password')
-        # now use socket as usual
+        # now use sockets as usual
 
     Constructors
     ------------
-    .. class:: WLAN()
+    .. class:: WLAN(interface_id)
 
-    Create a WLAN driver object.
+    Create a WLAN network interface object. Supported interfaces are
+    ``network.STA_IF`` (station aka client, connects to upstream WiFi access
+    points) and ``network.AP_IF`` (access point, allows other WiFi clients to
+    connect). Availability of the methods below depends on interface type.
+    For example, only STA interface may ``connect()`` to an access point.
 
     Methods
     -------
+
+    .. method:: wlan.active([is_active])
+
+        Activate ("up") or deactivate ("down") network interface, if boolean
+        argument is passed. Otherwise, query current state if no argument is
+        provided. Most other methods require active interface.
 
     .. method:: wlan.connect(ssid, password)
 
@@ -257,18 +283,17 @@ For example::
 
         Disconnect from the currently connected wireless network.
 
-    .. method:: wlan.scan(cb)
+    .. method:: wlan.scan()
 
-        Initiate scanning for the available wireless networks.
+        Scan for the available wireless networks.
 
-        Scanning is only possible if the radio is in station or station+AP mode; if
-        called while in AP only mode, an OSError exception will be raised.
-
-        Once the scanning is complete, the provided callback function ``cb`` will
-        be called once for each network found, and passed a tuple with information
-        about that network:
+        Scanning is only possible on STA interface. Returns list of tuples with
+        the information about WiFi access points:
 
             (ssid, bssid, channel, RSSI, authmode, hidden)
+
+        `bssid` is hardware address of an access point, in binary form, returned as
+        bytes object. You can use ``ubinascii.hexlify()`` to convert it to ASCII form.
 
         There are five values for authmode:
 
@@ -283,7 +308,7 @@ For example::
             * 0 -- visible
             * 1 -- hidden
 
-    .. method:: status()
+    .. method:: wlan.status()
 
         Return the current status of the wireless connection.
 
@@ -294,13 +319,53 @@ For example::
             * ``STAT_WRONG_PASSWORD`` -- failed due to incorrect password,
             * ``STAT_NO_AP_FOUND`` -- failed because no access point replied,
             * ``STAT_CONNECT_FAIL`` -- failed due to other problems,
-            * ``STAT_GOT_IP`` -- connection susccessful.
+            * ``STAT_GOT_IP`` -- connection successful.
 
     .. method:: wlan.isconnected()
 
         In case of STA mode, returns ``True`` if connected to a wifi access
         point and has a valid IP address.  In AP mode returns ``True`` when a
         station is connected. Returns ``False`` otherwise.
+
+    .. method:: wlan.ifconfig([(ip, subnet, gateway, dns)])
+
+       Get/set IP-level network interface parameters: IP address, subnet mask,
+       gateway and DNS server. When called with no arguments, this method returns
+       a 4-tuple with the above information. To set the above values, pass a
+       4-tuple with the required information.  For example::
+
+        nic.ifconfig(('192.168.0.4', '255.255.255.0', '192.168.0.1', '8.8.8.8'))
+
+    .. method:: wlan.config('param')
+    .. method:: wlan.config(param=value, ...)
+
+       Get or set general network interface parameters. These methods allow to work
+       with additional parameters beyond standard IP configuration (as dealt with by
+       ``wlan.ifconfig()``). These include network-specific and hardware-specific
+       parameters. For setting parameters, keyword argument syntax should be used,
+       multiple parameters can be set at once. For querying, parameters name should
+       be quoted as a string, and only one parameter can be queries at time::
+
+        # Set WiFi access point name (formally known as ESSID) and WiFi channel
+        ap.config(essid='My AP', channel=11)
+        # Queey params one by one
+        print(ap.config('essid'))
+        print(ap.config('channel'))
+
+       Following are commonly supported parameters (availability of a specific parameter
+       depends on network technology type, driver, and MicroPython port).
+
+       =========  ===========
+       Parameter  Description
+       =========  ===========
+       mac        MAC address (bytes)
+       essid      WiFi access point name (string)
+       channel    WiFi channel (integer)
+       hidden     Whether ESSID is hidden (boolean)
+       authmode   Authentication mode supported (enumeration, see module constants)
+       password   Access password (string)
+       =========  ===========
+
 
 
 .. only:: port_wipy
@@ -332,7 +397,7 @@ For example::
     .. note::
 
        The ``WLAN`` constructor is special in the sense that if no arguments besides the id are given,
-       it will return the already exisiting ``WLAN`` instance without re-configuring it. This is
+       it will return the already existing ``WLAN`` instance without re-configuring it. This is
        because ``WLAN`` is a system feature of the WiPy. If the already existing instance is not
        initialized it will do the same as the other constructors an will initialize it with default
        values.

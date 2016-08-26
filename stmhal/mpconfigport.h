@@ -31,6 +31,7 @@
 // options to control how Micro Python is built
 
 #define MICROPY_ALLOC_PATH_MAX      (128)
+#define MICROPY_PERSISTENT_CODE_LOAD (1)
 #define MICROPY_EMIT_THUMB          (1)
 #define MICROPY_EMIT_INLINE_THUMB   (1)
 #define MICROPY_COMP_MODULE_CONST   (1)
@@ -46,19 +47,21 @@
 #define MICROPY_FLOAT_IMPL          (MICROPY_FLOAT_IMPL_FLOAT)
 #define MICROPY_OPT_COMPUTED_GOTO   (1)
 #define MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE (0)
+#define MICROPY_OPT_MPZ_BITWISE     (1)
 
 // fatfs configuration used in ffconf.h
 #define MICROPY_FATFS_ENABLE_LFN       (1)
 #define MICROPY_FATFS_LFN_CODE_PAGE    (437) /* 1=SFN/ANSI 437=LFN/U.S.(OEM) */
 #define MICROPY_FATFS_USE_LABEL        (1)
 #define MICROPY_FATFS_RPATH            (2)
-#define MICROPY_FATFS_VOLUMES          (3)
+#define MICROPY_FATFS_VOLUMES          (4)
 #define MICROPY_FATFS_MULTI_PARTITION  (1)
 #define MICROPY_FSUSERMOUNT            (1)
 
 #define MICROPY_STREAMS_NON_BLOCK   (1)
 #define MICROPY_MODULE_WEAK_LINKS   (1)
 #define MICROPY_CAN_OVERRIDE_BUILTINS (1)
+#define MICROPY_USE_INTERNAL_ERRNO  (1)
 #define MICROPY_PY_FUNCTION_ATTRS   (1)
 #define MICROPY_PY_BUILTINS_STR_UNICODE (1)
 #define MICROPY_PY_BUILTINS_STR_SPLITLINES (1)
@@ -78,8 +81,10 @@
 #define MICROPY_PY_CMATH            (1)
 #define MICROPY_PY_IO               (1)
 #define MICROPY_PY_IO_FILEIO        (1)
+#define MICROPY_PY_UERRNO           (1)
 #define MICROPY_PY_UBINASCII        (1)
 #define MICROPY_PY_URANDOM          (1)
+#define MICROPY_PY_URANDOM_EXTRA_FUNCS (1)
 #define MICROPY_PY_UCTYPES          (1)
 #define MICROPY_PY_UZLIB            (1)
 #define MICROPY_PY_UJSON            (1)
@@ -87,14 +92,13 @@
 #define MICROPY_PY_UHEAPQ           (1)
 #define MICROPY_PY_UHASHLIB         (1)
 #define MICROPY_PY_MACHINE          (1)
+#define MICROPY_PY_MACHINE_I2C      (1)
+#define MICROPY_PY_FRAMEBUF         (1)
 
 #define MICROPY_ENABLE_EMERGENCY_EXCEPTION_BUF   (1)
 #define MICROPY_EMERGENCY_EXCEPTION_BUF_SIZE  (0)
 
 // extra built in names to add to the global namespace
-extern const struct _mp_obj_fun_builtin_t mp_builtin_help_obj;
-extern const struct _mp_obj_fun_builtin_t mp_builtin_input_obj;
-extern const struct _mp_obj_fun_builtin_t mp_builtin_open_obj;
 #define MICROPY_PORT_BUILTINS \
     { MP_OBJ_NEW_QSTR(MP_QSTR_help), (mp_obj_t)&mp_builtin_help_obj }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_input), (mp_obj_t)&mp_builtin_input_obj }, \
@@ -139,6 +143,7 @@ extern const struct _mp_obj_module_t mp_module_network;
     { MP_OBJ_NEW_QSTR(MP_QSTR_socket), (mp_obj_t)&mp_module_usocket }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_struct), (mp_obj_t)&mp_module_ustruct }, \
     { MP_OBJ_NEW_QSTR(MP_QSTR_machine), (mp_obj_t)&machine_module }, \
+    { MP_OBJ_NEW_QSTR(MP_QSTR_errno), (mp_obj_t)&mp_module_uerrno }, \
 
 // extra constants
 #define MICROPY_PORT_CONSTANTS \
@@ -181,9 +186,6 @@ extern const struct _mp_obj_module_t mp_module_network;
     /* pointers to all CAN objects (if they have been created) */ \
     struct _pyb_can_obj_t *pyb_can_obj_all[2]; \
     \
-    /* for user-mountable block device */ \
-    struct _fs_user_mount_t *fs_user_mount; \
-    \
     /* list of registered NICs */ \
     mp_obj_list_t mod_network_nic_list; \
 
@@ -200,8 +202,6 @@ extern const struct _mp_obj_module_t mp_module_network;
 
 typedef int mp_int_t; // must be pointer size
 typedef unsigned int mp_uint_t; // must be pointer size
-typedef void *machine_ptr_t; // must be of pointer size
-typedef const void *machine_const_ptr_t; // must be of pointer size
 typedef long mp_off_t;
 
 #define MP_PLAT_PRINT_STRN(str, len) mp_hal_stdout_tx_strn_cooked(str, len)
@@ -233,9 +233,9 @@ static inline mp_uint_t disable_irq(void) {
 // garbage-collected heap. For completeness, emulate C heap via
 // GC heap. Note that MicroPython core never uses malloc() and friends,
 // so these defines are mostly to help extension module writers.
-#define malloc gc_alloc
-#define free gc_free
-#define realloc gc_realloc
+#define malloc(n) m_malloc(n)
+#define free(p) m_free(p)
+#define realloc(p, n) m_realloc(p, n)
 
 // see stm32f4XX_hal_conf.h USE_USB_FS & USE_USB_HS
 // at the moment only USB_FS is supported

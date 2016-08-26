@@ -63,10 +63,6 @@
 /******************************************************************************
  DECLARE PRIVATE DATA
  ******************************************************************************/
-#ifndef BOOTLOADER
-STATIC const mp_obj_base_t pyb_heartbeat_obj = {&pyb_heartbeat_type};
-#endif
-
 struct mperror_heart_beat {
     uint32_t off_time;
     uint32_t on_time;
@@ -196,6 +192,10 @@ void nlr_jump_fail(void *val) {
 
 void mperror_enable_heartbeat (bool enable) {
     if (enable) {
+    #ifndef BOOTLOADER
+        // configure the led again
+        pin_config ((pin_obj_t *)&MICROPY_SYS_LED_GPIO, PIN_MODE_0, GPIO_DIR_MODE_OUT, PIN_TYPE_STD, 0, PIN_STRENGTH_6MA);
+    #endif
         mperror_heart_beat.enabled = true;
         mperror_heart_beat.do_disable = false;
         mperror_heartbeat_switch_off();

@@ -61,7 +61,6 @@ const mp_obj_module_t mp_module___main__ = {
 
 void mp_init(void) {
     qstr_init();
-    mp_stack_ctrl_init();
 
     // no pending exceptions to start with
     MP_STATE_VM(mp_pending_exception) = MP_OBJ_NULL;
@@ -92,6 +91,12 @@ void mp_init(void) {
     // start with no extensions to builtins
     MP_STATE_VM(mp_module_builtins_override_dict) = NULL;
     #endif
+
+    #if MICROPY_PY_THREAD_GIL
+    mp_thread_mutex_init(&MP_STATE_VM(gil_mutex));
+    #endif
+
+    MP_THREAD_GIL_ENTER();
 }
 
 void mp_deinit(void) {
@@ -705,18 +710,28 @@ void mp_call_prepare_args_n_kw_var(bool have_self, mp_uint_t n_args_n_kw, const 
         assert(args2_len + 2 * map->used <= args2_alloc); // should have enough, since kw_dict_len is in this case hinted correctly above
         for (mp_uint_t i = 0; i < map->alloc; i++) {
             if (MP_MAP_SLOT_IS_FILLED(map, i)) {
-                args2[args2_len++] = map->table[i].key;
+                // the key must be a qstr, so intern it if it's a string
+                mp_obj_t key = map->table[i].key;
+                if (MP_OBJ_IS_TYPE(key, &mp_type_str)) {
+                    key = mp_obj_str_intern(key);
+                }
+                args2[args2_len++] = key;
                 args2[args2_len++] = map->table[i].value;
             }
         }
     } else {
-        // generic mapping
-        // TODO is calling 'items' on the mapping the correct thing to do here?
-        mp_obj_t dest[2];
-        mp_load_method(kw_dict, MP_QSTR_items, dest);
+        // generic mapping:
+        // - call keys() to get an iterable of all keys in the mapping
+        // - call __getitem__ for each key to get the corresponding value
+
+        // get the keys iterable
+        mp_obj_t dest[3];
+        mp_load_method(kw_dict, MP_QSTR_keys, dest);
         mp_obj_t iterable = mp_getiter(mp_call_method_n_kw(0, 0, dest));
-        mp_obj_t item;
-        while ((item = mp_iternext(iterable)) != MP_OBJ_STOP_ITERATION) {
+
+        mp_obj_t key;
+        while ((key = mp_iternext(iterable)) != MP_OBJ_STOP_ITERATION) {
+            // expand size of args array if needed
             if (args2_len + 1 >= args2_alloc) {
                 uint new_alloc = args2_alloc * 2;
                 if (new_alloc < 4) {
@@ -725,10 +740,20 @@ void mp_call_prepare_args_n_kw_var(bool have_self, mp_uint_t n_args_n_kw, const 
                 args2 = m_renew(mp_obj_t, args2, args2_alloc, new_alloc);
                 args2_alloc = new_alloc;
             }
-            mp_obj_t *items;
-            mp_obj_get_array_fixed_n(item, 2, &items);
-            args2[args2_len++] = items[0];
-            args2[args2_len++] = items[1];
+
+            // the key must be a qstr, so intern it if it's a string
+            if (MP_OBJ_IS_TYPE(key, &mp_type_str)) {
+                key = mp_obj_str_intern(key);
+            }
+
+            // get the value corresponding to the key
+            mp_load_method(kw_dict, MP_QSTR___getitem__, dest);
+            dest[2] = key;
+            mp_obj_t value = mp_call_method_n_kw(1, 0, dest);
+
+            // store the key/value pair in the argument array
+            args2[args2_len++] = key;
+            args2[args2_len++] = value;
         }
     }
 
@@ -789,7 +814,7 @@ too_short:
             "wrong number of values to unpack"));
     } else {
         nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-            "need more than %d values to unpack", seq_len));
+            "need more than %d values to unpack", (int)seq_len));
     }
 too_long:
     if (MICROPY_ERROR_REPORTING == MICROPY_ERROR_REPORTING_TERSE) {
@@ -797,7 +822,7 @@ too_long:
             "wrong number of values to unpack"));
     } else {
         nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-            "too many values to unpack (expected %d)", num));
+            "too many values to unpack (expected %d)", (int)num));
     }
 }
 
@@ -864,7 +889,7 @@ too_short:
             "wrong number of values to unpack"));
     } else {
         nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-            "need more than %d values to unpack", seq_len));
+            "need more than %d values to unpack", (int)seq_len));
     }
 }
 
@@ -1365,6 +1390,18 @@ void *m_malloc_fail(size_t num_bytes) {
     }
 }
 
+NORETURN void mp_raise_msg(const mp_obj_type_t *exc_type, const char *msg) {
+    nlr_raise(mp_obj_new_exception_msg(exc_type, msg));
+}
+
+NORETURN void mp_raise_ValueError(const char *msg) {
+    mp_raise_msg(&mp_type_ValueError, msg);
+}
+
+NORETURN void mp_raise_TypeError(const char *msg) {
+    mp_raise_msg(&mp_type_TypeError, msg);
+}
+
 NORETURN void mp_not_implemented(const char *msg) {
-    nlr_raise(mp_obj_new_exception_msg(&mp_type_NotImplementedError, msg));
+    mp_raise_msg(&mp_type_NotImplementedError, msg);
 }

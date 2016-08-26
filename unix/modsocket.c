@@ -62,12 +62,14 @@
 
 #define MICROPY_SOCKET_EXTRA (0)
 
+// This type must "inherit" from mp_obj_fdfile_t, i.e. matching subset of
+// fields should have the same layout.
 typedef struct _mp_obj_socket_t {
     mp_obj_base_t base;
     int fd;
 } mp_obj_socket_t;
 
-STATIC const mp_obj_type_t usocket_type;
+const mp_obj_type_t mp_type_socket;
 
 // Helper functions
 #define RAISE_ERRNO(err_flag, error_val) \
@@ -80,7 +82,7 @@ static inline mp_obj_t mp_obj_from_sockaddr(const struct sockaddr *addr, socklen
 
 STATIC mp_obj_socket_t *socket_new(int fd) {
     mp_obj_socket_t *o = m_new_obj(mp_obj_socket_t);
-    o->base.type = &usocket_type;
+    o->base.type = &mp_type_socket;
     o->fd = fd;
     return o;
 }
@@ -114,6 +116,13 @@ STATIC mp_uint_t socket_write(mp_obj_t o_in, const void *buf, mp_uint_t size, in
 
 STATIC mp_obj_t socket_close(mp_obj_t self_in) {
     mp_obj_socket_t *self = MP_OBJ_TO_PTR(self_in);
+    // There's a POSIX drama regarding return value of close in general,
+    // and EINTR error in particular. See e.g.
+    // http://lwn.net/Articles/576478/
+    // http://austingroupbugs.net/view.php?id=529
+    // The rationale MicroPython follows is that close() just releases
+    // file descriptor. If you're interested to catch I/O errors before
+    // closing fd, fsync() it.
     close(self->fd);
     return mp_const_none;
 }
@@ -309,9 +318,7 @@ STATIC mp_obj_t socket_makefile(size_t n_args, const mp_obj_t *args) {
     mp_obj_t *new_args = alloca(n_args * sizeof(mp_obj_t));
     memcpy(new_args + 1, args + 1, (n_args - 1) * sizeof(mp_obj_t));
     new_args[0] = MP_OBJ_NEW_SMALL_INT(self->fd);
-    mp_map_t kwargs;
-    mp_map_init(&kwargs, 0);
-    return mp_builtin_open(n_args, new_args, &kwargs);
+    return mp_builtin_open(n_args, new_args, (mp_map_t*)&mp_const_empty_map);
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(socket_makefile_obj, 1, 3, socket_makefile);
 
@@ -369,14 +376,14 @@ STATIC const mp_stream_p_t usocket_stream_p = {
     .write = socket_write,
 };
 
-STATIC const mp_obj_type_t usocket_type = {
+const mp_obj_type_t mp_type_socket = {
     { &mp_type_type },
     .name = MP_QSTR_socket,
     .print = socket_print,
     .make_new = socket_make_new,
     .getiter = NULL,
     .iternext = NULL,
-    .stream_p = &usocket_stream_p,
+    .protocol = &usocket_stream_p,
     .locals_dict = (mp_obj_dict_t*)&usocket_locals_dict,
 };
 
@@ -521,6 +528,16 @@ STATIC mp_obj_t mod_socket_sockaddr(mp_obj_t sockaddr_in) {
             t->items[2] = MP_OBJ_NEW_SMALL_INT(ntohs(sa->sin_port));
             return MP_OBJ_FROM_PTR(t);
         }
+        case AF_INET6: {
+            struct sockaddr_in6 *sa = (struct sockaddr_in6*)bufinfo.buf;
+            mp_obj_tuple_t *t = MP_OBJ_TO_PTR(mp_obj_new_tuple(5, NULL));
+            t->items[0] = MP_OBJ_NEW_SMALL_INT(AF_INET6);
+            t->items[1] = mp_obj_new_bytes((byte*)&sa->sin6_addr, sizeof(sa->sin6_addr));
+            t->items[2] = MP_OBJ_NEW_SMALL_INT(ntohs(sa->sin6_port));
+            t->items[3] = MP_OBJ_NEW_SMALL_INT(ntohl(sa->sin6_flowinfo));
+            t->items[4] = MP_OBJ_NEW_SMALL_INT(ntohl(sa->sin6_scope_id));
+            return MP_OBJ_FROM_PTR(t);
+        }
         default: {
             struct sockaddr *sa = (struct sockaddr*)bufinfo.buf;
             mp_obj_tuple_t *t = MP_OBJ_TO_PTR(mp_obj_new_tuple(2, NULL));
@@ -535,7 +552,7 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(mod_socket_sockaddr_obj, mod_socket_sockaddr);
 
 STATIC const mp_rom_map_elem_t mp_module_socket_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_usocket) },
-    { MP_ROM_QSTR(MP_QSTR_socket), MP_ROM_PTR(&usocket_type) },
+    { MP_ROM_QSTR(MP_QSTR_socket), MP_ROM_PTR(&mp_type_socket) },
     { MP_ROM_QSTR(MP_QSTR_getaddrinfo), MP_ROM_PTR(&mod_socket_getaddrinfo_obj) },
     { MP_ROM_QSTR(MP_QSTR_inet_pton), MP_ROM_PTR(&mod_socket_inet_pton_obj) },
     { MP_ROM_QSTR(MP_QSTR_inet_ntop), MP_ROM_PTR(&mod_socket_inet_ntop_obj) },

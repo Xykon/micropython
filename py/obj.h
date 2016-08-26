@@ -31,15 +31,15 @@
 #include "py/qstr.h"
 #include "py/mpprint.h"
 
-// All Micro Python objects are at least this type
-// The bit-size must be at least pointer size
-
+// This is the definition of the opaque MicroPython object type.
+// All concrete objects have an encoding within this type and the
+// particular encoding is specified by MICROPY_OBJ_REPR.
 #if MICROPY_OBJ_REPR == MICROPY_OBJ_REPR_D
 typedef uint64_t mp_obj_t;
 typedef uint64_t mp_const_obj_t;
 #else
-typedef machine_ptr_t mp_obj_t;
-typedef machine_const_ptr_t mp_const_obj_t;
+typedef void *mp_obj_t;
+typedef const void *mp_const_obj_t;
 #endif
 
 // This mp_obj_type_t struct is a concrete MicroPython object which holds info
@@ -83,7 +83,7 @@ typedef struct _mp_obj_base_t mp_obj_base_t;
 static inline bool MP_OBJ_IS_SMALL_INT(mp_const_obj_t o)
     { return ((((mp_int_t)(o)) & 1) != 0); }
 #define MP_OBJ_SMALL_INT_VALUE(o) (((mp_int_t)(o)) >> 1)
-#define MP_OBJ_NEW_SMALL_INT(small_int) ((mp_obj_t)((((mp_int_t)(small_int)) << 1) | 1))
+#define MP_OBJ_NEW_SMALL_INT(small_int) ((mp_obj_t)((((mp_uint_t)(small_int)) << 1) | 1))
 
 static inline bool MP_OBJ_IS_QSTR(mp_const_obj_t o)
     { return ((((mp_int_t)(o)) & 3) == 2); }
@@ -109,7 +109,7 @@ static inline bool MP_OBJ_IS_OBJ(mp_const_obj_t o)
 static inline bool MP_OBJ_IS_SMALL_INT(mp_const_obj_t o)
     { return ((((mp_int_t)(o)) & 3) == 1); }
 #define MP_OBJ_SMALL_INT_VALUE(o) (((mp_int_t)(o)) >> 2)
-#define MP_OBJ_NEW_SMALL_INT(small_int) ((mp_obj_t)((((mp_int_t)(small_int)) << 2) | 1))
+#define MP_OBJ_NEW_SMALL_INT(small_int) ((mp_obj_t)((((mp_uint_t)(small_int)) << 2) | 1))
 
 static inline bool MP_OBJ_IS_QSTR(mp_const_obj_t o)
     { return ((((mp_int_t)(o)) & 3) == 3); }
@@ -135,7 +135,7 @@ static inline bool MP_OBJ_IS_OBJ(mp_const_obj_t o)
 static inline bool MP_OBJ_IS_SMALL_INT(mp_const_obj_t o)
     { return ((((mp_int_t)(o)) & 1) != 0); }
 #define MP_OBJ_SMALL_INT_VALUE(o) (((mp_int_t)(o)) >> 1)
-#define MP_OBJ_NEW_SMALL_INT(small_int) ((mp_obj_t)((((mp_int_t)(small_int)) << 1) | 1))
+#define MP_OBJ_NEW_SMALL_INT(small_int) ((mp_obj_t)((((mp_uint_t)(small_int)) << 1) | 1))
 
 #define mp_const_float_e MP_ROM_PTR((mp_obj_t)(((0x402df854 & ~3) | 2) + 0x80800000))
 #define mp_const_float_pi MP_ROM_PTR((mp_obj_t)(((0x40490fdb & ~3) | 2) + 0x80800000))
@@ -398,6 +398,8 @@ typedef mp_obj_t (*mp_fun_1_t)(mp_obj_t);
 typedef mp_obj_t (*mp_fun_2_t)(mp_obj_t, mp_obj_t);
 typedef mp_obj_t (*mp_fun_3_t)(mp_obj_t, mp_obj_t, mp_obj_t);
 typedef mp_obj_t (*mp_fun_var_t)(size_t n, const mp_obj_t *);
+// mp_fun_kw_t takes mp_map_t* (and not const mp_map_t*) to ease passing
+// this arg to mp_map_lookup().
 typedef mp_obj_t (*mp_fun_kw_t)(size_t n, const mp_obj_t *, mp_map_t *);
 
 typedef enum {
@@ -425,7 +427,7 @@ typedef struct _mp_buffer_info_t {
     //int ver; // ?
 
     void *buf;      // can be NULL if len == 0
-    mp_uint_t len;  // in bytes
+    size_t len;     // in bytes
     int typecode;   // as per binary.h
 
     // Rationale: to load arbitrary-sized sprites directly to LCD
@@ -442,7 +444,6 @@ bool mp_get_buffer(mp_obj_t obj, mp_buffer_info_t *bufinfo, mp_uint_t flags);
 void mp_get_buffer_raise(mp_obj_t obj, mp_buffer_info_t *bufinfo, mp_uint_t flags);
 
 // Stream protocol
-#define MP_STREAM_ERROR ((mp_uint_t)-1)
 typedef struct _mp_stream_p_t {
     // On error, functions should return MP_STREAM_ERROR and fill in *errcode (values
     // are implementation-dependent, but will be exposed to user, e.g. via exception).
@@ -451,17 +452,6 @@ typedef struct _mp_stream_p_t {
     mp_uint_t (*ioctl)(mp_obj_t obj, mp_uint_t request, uintptr_t arg, int *errcode);
     mp_uint_t is_text : 1; // default is bytes, set this for text stream
 } mp_stream_p_t;
-
-// Stream ioctl request codes
-#define MP_STREAM_FLUSH (1)
-#define MP_STREAM_SEEK  (2)
-#define MP_STREAM_POLL  (3)
-
-// Argument structure for MP_STREAM_SEEK
-struct mp_stream_seek_t {
-    mp_off_t offset;
-    int whence;
-};
 
 struct _mp_obj_type_t {
     mp_obj_base_t base;
@@ -494,7 +484,8 @@ struct _mp_obj_type_t {
     mp_fun_1_t iternext; // may return MP_OBJ_STOP_ITERATION as an optimisation instead of raising StopIteration() (with no args)
 
     mp_buffer_p_t buffer_p;
-    const mp_stream_p_t *stream_p;
+    // One of disjoint protocols (interfaces), like mp_stream_p_t, etc.
+    const void *protocol;
 
     // these are for dynamically created types (classes)
     struct _mp_obj_tuple_t *bases_tuple;
@@ -571,6 +562,7 @@ extern const mp_obj_type_t mp_type_OSError;
 extern const mp_obj_type_t mp_type_TimeoutError;
 extern const mp_obj_type_t mp_type_OverflowError;
 extern const mp_obj_type_t mp_type_RuntimeError;
+extern const mp_obj_type_t mp_type_StopAsyncIteration;
 extern const mp_obj_type_t mp_type_StopIteration;
 extern const mp_obj_type_t mp_type_SyntaxError;
 extern const mp_obj_type_t mp_type_SystemExit;
@@ -625,7 +617,7 @@ mp_obj_t mp_obj_new_exception_msg_varg(const mp_obj_type_t *exc_type, const char
 mp_obj_t mp_obj_new_fun_bc(mp_obj_t def_args, mp_obj_t def_kw_args, const byte *code, const mp_uint_t *const_table);
 mp_obj_t mp_obj_new_fun_native(mp_obj_t def_args_in, mp_obj_t def_kw_args, const void *fun_data, const mp_uint_t *const_table);
 mp_obj_t mp_obj_new_fun_viper(mp_uint_t n_args, void *fun_data, mp_uint_t type_sig);
-mp_obj_t mp_obj_new_fun_asm(mp_uint_t n_args, void *fun_data);
+mp_obj_t mp_obj_new_fun_asm(mp_uint_t n_args, void *fun_data, mp_uint_t type_sig);
 mp_obj_t mp_obj_new_gen_wrap(mp_obj_t fun);
 mp_obj_t mp_obj_new_closure(mp_obj_t fun, mp_uint_t n_closed, const mp_obj_t *closed);
 mp_obj_t mp_obj_new_tuple(mp_uint_t n, const mp_obj_t *items);
@@ -660,8 +652,8 @@ mp_float_t mp_obj_get_float(mp_obj_t self_in);
 void mp_obj_get_complex(mp_obj_t self_in, mp_float_t *real, mp_float_t *imag);
 #endif
 //qstr mp_obj_get_qstr(mp_obj_t arg);
-void mp_obj_get_array(mp_obj_t o, mp_uint_t *len, mp_obj_t **items);
-void mp_obj_get_array_fixed_n(mp_obj_t o, mp_uint_t len, mp_obj_t **items);
+void mp_obj_get_array(mp_obj_t o, mp_uint_t *len, mp_obj_t **items); // *items may point inside a GC block
+void mp_obj_get_array_fixed_n(mp_obj_t o, mp_uint_t len, mp_obj_t **items); // *items may point inside a GC block
 mp_uint_t mp_get_index(const mp_obj_type_t *type, mp_uint_t len, mp_obj_t index, bool is_slice);
 mp_obj_t mp_obj_id(mp_obj_t o_in);
 mp_obj_t mp_obj_len(mp_obj_t o_in);
@@ -710,6 +702,8 @@ mp_obj_t mp_obj_float_binary_op(mp_uint_t op, mp_float_t lhs_val, mp_obj_t rhs);
 // complex
 void mp_obj_complex_get(mp_obj_t self_in, mp_float_t *real, mp_float_t *imag);
 mp_obj_t mp_obj_complex_binary_op(mp_uint_t op, mp_float_t lhs_real, mp_float_t lhs_imag, mp_obj_t rhs_in); // can return MP_OBJ_NULL if op not supported
+#else
+#define mp_obj_is_float(o) (false)
 #endif
 
 // tuple

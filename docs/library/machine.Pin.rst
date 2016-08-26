@@ -1,9 +1,10 @@
-.. _machine.Pin:
+.. currentmodule:: machine
 
 class Pin -- control I/O pins
 =============================
 
-A pin is the basic object to control I/O pins.  It has methods to set
+A pin is the basic object to control I/O pins (also known as GPIO -
+general-purpose input/output). It has methods to set
 the mode of the pin (input, output, etc) and methods to get and set the
 digital logic level. For analog control of a pin, see the ADC class.
 
@@ -24,7 +25,7 @@ Usage Model:
             print(pin.id())
 
         pin_int = Pin('GP10', mode=Pin.IN, pull=Pin.PULL_DOWN)
-        pin_int.irq(mode=Pin.IRQ_RISING, handler=pincb)
+        pin_int.irq(trigger=Pin.IRQ_RISING, handler=pincb)
         # the callback can be triggered manually
         pin_int.irq()()
         # to disable the callback
@@ -39,20 +40,35 @@ Usage Model:
     All pin objects go through the pin mapper to come up with one of the
     gpio pins.
 
+.. only:: port_esp8266
+
+   ::
+
+    from machine import Pin
+
+    # create an output pin on GPIO0
+    p0 = Pin(0, Pin.OUT)
+    p0.value(0)
+    p0.value(1)
+
+    # create an input pin on GPIO2
+    p2 = Pin(2, Pin.IN, Pin.PULL_UP)
+    print(p2.value())
+
 Constructors
 ------------
 
-.. class:: machine.Pin(id, ...)
+.. class:: Pin(id, ...)
 
    Create a new Pin object associated with the id.  If additional arguments are given,
-   they are used to initialise the pin.  See :meth:`pin.init`.
+   they are used to initialise the pin.  See :meth:`Pin.init`.
 
 Methods
 -------
 
 .. only:: port_wipy
 
-    .. method:: pin.init(mode, pull, \*, drive, alt)
+    .. method:: Pin.init(mode, pull, \*, drive, alt)
     
        Initialise the pin:
 
@@ -68,7 +84,7 @@ Methods
 
             - ``None`` - no pull up or down resistor.
             - ``Pin.PULL_UP`` - pull up resistor enabled.
-            - ``Pin.PULL_DOWN`` - pull down resitor enabled.
+            - ``Pin.PULL_DOWN`` - pull down resistor enabled.
 
          - ``drive`` can be one of:
 
@@ -82,11 +98,30 @@ Methods
 
        Returns: ``None``.
 
-    .. method:: pin.id()
+    .. method:: Pin.id()
 
        Get the pin id.
 
-.. method:: pin.value([value])
+.. only:: port_esp8266
+
+    .. method:: Pin.init(mode, pull=None, \*, value)
+
+       Initialise the pin:
+
+         - `mode` can be one of:
+
+            - ``Pin.IN``  - input pin.
+            - ``Pin.OUT`` - output pin in push-pull mode.
+
+         - `pull` can be one of:
+
+            - ``None`` - no pull up or down resistor.
+            - ``Pin.PULL_UP`` - pull up resistor enabled.
+
+         - if `value` is given then it is the output value to set the pin
+           if it is in output mode.
+
+.. method:: Pin.value([value])
 
    Get or set the digital logic level of the pin:
 
@@ -95,35 +130,37 @@ Methods
        anything that converts to a boolean.  If it converts to ``True``, the pin
        is set high, otherwise it is set low.
 
-.. method:: pin.alt_list()
+.. method:: Pin.__call__([value])
+
+   Pin objects are callable. The call method provides a (fast) shortcut to set and get the value of the pin.
+   See :func:`Pin.value` for more details.
+
+.. method:: Pin.alt_list()
 
     Returns a list of the alternate functions supported by the pin. List items are
     a tuple of the form: ``('ALT_FUN_NAME', ALT_FUN_INDEX)``
 
+    Availability: WiPy.
+
 .. only:: port_wipy
 
-    .. method:: pin([value])
-
-       Pin objects are callable. The call method provides a (fast) shortcut to set and get the value of the pin.
-       See **pin.value** for more details.
-
-    .. method:: pin.toggle()
+    .. method:: Pin.toggle()
 
         Toggle the value of the pin.
 
-    .. method:: pin.mode([mode])
+    .. method:: Pin.mode([mode])
 
         Get or set the pin mode.
 
-    .. method:: pin.pull([pull])
+    .. method:: Pin.pull([pull])
 
         Get or set the pin pull.
 
-    .. method:: pin.drive([drive])
+    .. method:: Pin.drive([drive])
 
         Get or set the pin drive strength.
 
-    .. method:: pin.irq(\*, trigger, priority=1, handler=None, wake=None)
+    .. method:: Pin.irq(\*, trigger, priority=1, handler=None, wake=None)
 
         Create a callback to be triggered when the input level at the pin changes.
 
@@ -155,6 +192,23 @@ Methods
 
             Returns a callback object.
 
+.. only:: port_esp8266
+
+    .. method:: Pin.irq(\*, trigger, handler=None)
+
+        Create a callback to be triggered when the input level at the pin changes.
+
+            - ``trigger`` configures the pin level which can generate an interrupt. Possible values are:
+
+                - ``Pin.IRQ_FALLING`` interrupt on falling edge.
+                - ``Pin.IRQ_RISING`` interrupt on rising edge.
+
+              The values can be OR'ed together to trigger on multiple events.
+
+            - ``handler`` is an optional function to be called when the interrupt triggers.
+
+            Returns a callback object.
+
 Attributes
 ----------
 
@@ -166,44 +220,36 @@ Attributes
         led = Pin(Pin.board.GP25, mode=Pin.OUT)
         Pin.board.GP2.alt_list()
 
+    Availability: WiPy.
 
 Constants
 ---------
 
-.. only:: port_wipy
+The following constants are used to configure the pin objects.  Note that
+not all constants are available on all ports.
 
-    .. data:: Pin.IN
+.. data:: Pin.IN
+          Pin.OUT
+          Pin.OPEN_DRAIN
+          Pin.ALT
+          Pin.ALT_OPEN_DRAIN
 
-    .. data:: Pin.OUT
-    
-    .. data:: Pin.OPEN_DRAIN
+   Selects the pin mode.
 
-    .. data:: Pin.ALT
+.. data:: Pin.PULL_UP
+          Pin.PULL_DOWN
 
-    .. data:: Pin.ALT_OPEN_DRAIN
+   Selects the whether there is a pull up/down resistor.
 
-       Selects the pin mode.
+.. data:: Pin.LOW_POWER
+          Pin.MED_POWER
+          Pin.HIGH_POWER
 
-    .. data:: Pin.PULL_UP
+   Selects the pin drive strength.
 
-    .. data:: Pin.PULL_DOWN
-    
-       Selectes the wether there's pull up/down resistor.
+.. data:: Pin.IRQ_FALLING
+          Pin.IRQ_RISING
+          Pin.IRQ_LOW_LEVEL
+          Pin.IRQ_HIGH_LEVEL
 
-    .. data:: Pin.LOW_POWER
-
-    .. data:: Pin.MED_POWER
-
-    .. data:: Pin.HIGH_POWER
-
-        Selects the drive strength.
-
-    .. data:: Pin.IRQ_FALLING
-
-    .. data:: Pin.IRQ_RISING
-
-    .. data:: Pin.IRQ_LOW_LEVEL
-
-    .. data:: Pin.IRQ_HIGH_LEVEL
-
-        Selects the IRQ trigger type.
+   Selects the IRQ trigger type.

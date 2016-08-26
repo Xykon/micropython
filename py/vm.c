@@ -179,6 +179,7 @@ outer_dispatch_loop:
             const byte *ip = code_state->ip;
             mp_obj_t *sp = code_state->sp;
             mp_obj_t obj_shared;
+            MICROPY_VM_HOOK_INIT
 
             // If we have exception to inject, now that we finish setting up
             // execution context, raise it. This works as if RAISE_VARARGS
@@ -674,7 +675,7 @@ unwind_jump:;
                             exc_sp--; // pop exception handler
                             goto dispatch_loop; // run the exception handler
                         }
-                        exc_sp--;
+                        POP_EXC_BLOCK();
                     }
                     ip = (const byte*)MP_OBJ_TO_PTR(POP()); // pop destination ip for jump
                     if (unum != 0) {
@@ -1069,6 +1070,7 @@ unwind_return:
                     nlr_pop();
                     code_state->sp = sp;
                     assert(exc_sp == exc_stack - 1);
+                    MICROPY_VM_HOOK_RETURN
                     #if MICROPY_STACKLESS
                     if (code_state->prev != NULL) {
                         mp_obj_t res = *sp;
@@ -1142,7 +1144,8 @@ yield:
                     if (ret_kind == MP_VM_RETURN_NORMAL) {
                         // Pop exhausted gen
                         sp--;
-                        if (ret_value == MP_OBJ_NULL) {
+                        // TODO: When ret_value can be MP_OBJ_NULL here??
+                        if (ret_value == MP_OBJ_NULL || ret_value == MP_OBJ_STOP_ITERATION) {
                             // Optimize StopIteration
                             // TODO: get StopIteration's value
                             PUSH(mp_const_none);
@@ -1252,12 +1255,17 @@ yield:
 #endif
 
 pending_exception_check:
+                MICROPY_VM_HOOK_LOOP
                 if (MP_STATE_VM(mp_pending_exception) != MP_OBJ_NULL) {
                     MARK_EXC_IP_SELECTIVE();
                     mp_obj_t obj = MP_STATE_VM(mp_pending_exception);
                     MP_STATE_VM(mp_pending_exception) = MP_OBJ_NULL;
                     RAISE(obj);
                 }
+
+                // TODO make GIL release more efficient
+                MP_THREAD_GIL_EXIT();
+                MP_THREAD_GIL_ENTER();
 
             } // for loop
 

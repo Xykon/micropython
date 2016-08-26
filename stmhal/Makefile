@@ -25,10 +25,13 @@ USBDEV_DIR=usbdev
 FATFS_DIR=lib/fatfs
 DFU=../tools/dfu.py
 # may need to prefix dfu-util with sudo
-USE_PYDFU ?= 0
-PYDFU = ../tools/pydfu.py
+USE_PYDFU ?= 1
+PYDFU ?= ../tools/pydfu.py
 DFU_UTIL ?= dfu-util
 DEVICE=0483:df11
+STFLASH ?= st-flash
+OPENOCD ?= openocd
+OPENOCD_CONFIG ?= boards/openocd_stm32f4.cfg
 
 CROSS_COMPILE = arm-none-eabi-
 
@@ -47,6 +50,7 @@ INC += -I../lib/timeutils
 CFLAGS_CORTEX_M = -mthumb -mabi=aapcs-linux -mfpu=fpv4-sp-d16 -mfloat-abi=hard -fsingle-precision-constant -Wdouble-promotion
 CFLAGS_MCU_f4 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4 -DMCU_SERIES_F4
 CFLAGS_MCU_f7 = $(CFLAGS_CORTEX_M) -mtune=cortex-m7 -mcpu=cortex-m7 -DMCU_SERIES_F7
+CFLAGS_MCU_l4 = $(CFLAGS_CORTEX_M) -mtune=cortex-m4 -mcpu=cortex-m4 -DMCU_SERIES_L4
 
 CFLAGS = $(INC) -Wall -Wpointer-arith -Werror -ansi -std=gnu99 -nostdlib $(CFLAGS_MOD)
 CFLAGS += -D$(CMSIS_MCU)
@@ -106,6 +110,7 @@ SRC_LIB = $(addprefix lib/,\
 	netutils/netutils.c \
 	timeutils/timeutils.c \
 	utils/pyexec.c \
+	utils/pyhelp.c \
 	utils/printf.c \
 	)
 
@@ -153,10 +158,9 @@ SRC_C = \
 	rtc.c \
 	flash.c \
 	storage.c \
-	file.c \
+	builtin_open.c \
 	sdcard.c \
-	diskio.c \
-	ffconf.c \
+	fatfs_port.c \
 	lcd.c \
 	accel.c \
 	servo.c \
@@ -265,7 +269,7 @@ $(BUILD)/$(HAL_DIR)/src/stm32$(MCU_SERIES)xx_hal_sd.o: COPT += -Os
 all: $(BUILD)/firmware.dfu $(BUILD)/firmware.hex
 
 ifneq ($(FROZEN_DIR),)
-CFLAGS += -DMICROPY_MODULE_FROZEN
+CFLAGS += -DMICROPY_MODULE_FROZEN_STR
 OBJ += $(BUILD)/frozen-files.o
 MAKE_FROZEN = ../tools/make-frozen.py
 
@@ -277,6 +281,27 @@ $(BUILD)/frozen-files.c: $(shell find $(FROZEN_DIR) -type f)
 	$(Q)$(PYTHON) $(MAKE_FROZEN) $(FROZEN_DIR) > $@
 endif
 
+ifneq ($(FROZEN_MPY_DIR),)
+# To use frozen bytecode, put your .py files in a subdirectory (eg frozen/) and
+# then invoke make with FROZEN_MPY_DIR=frozen (be sure to build from scratch).
+FROZEN_MPY_PY_FILES := $(shell find $(FROZEN_MPY_DIR)/ -type f -name '*.py')
+FROZEN_MPY_MPY_FILES := $(addprefix $(BUILD)/,$(FROZEN_MPY_PY_FILES:.py=.mpy))
+CFLAGS += -DMICROPY_QSTR_EXTRA_POOL=mp_qstr_frozen_const_pool
+CFLAGS += -DMICROPY_MODULE_FROZEN_MPY
+OBJ += $(BUILD)/$(BUILD)/frozen_mpy.o
+MPY_CROSS = ../mpy-cross/mpy-cross
+MPY_TOOL = ../tools/mpy-tool.py
+
+$(BUILD)/$(FROZEN_MPY_DIR)/%.mpy: $(FROZEN_MPY_DIR)/%.py
+	@$(ECHO) "MPY $<"
+	$(Q)$(MKDIR) -p $(dir $@)
+	$(Q)$(MPY_CROSS) -o $@ -s $(^:$(FROZEN_MPY_DIR)/%=%) $^
+
+$(BUILD)/frozen_mpy.c: $(FROZEN_MPY_MPY_FILES) $(BUILD)/genhdr/qstrdefs.generated.h
+	@$(ECHO) "Creating $@"
+	$(Q)$(PYTHON) $(MPY_TOOL) -f -q $(BUILD)/genhdr/qstrdefs.preprocessed.h $(FROZEN_MPY_MPY_FILES) > $@
+endif
+
 .PHONY: deploy
 
 deploy: $(BUILD)/firmware.dfu
@@ -286,6 +311,16 @@ ifeq ($(USE_PYDFU),1)
 else
 	$(Q)$(DFU_UTIL) -a 0 -d $(DEVICE) -D $<
 endif
+
+deploy-stlink: $(BUILD)/firmware.dfu
+	$(ECHO) "Writing $(BUILD)/firmware0.bin to the board via ST-LINK"
+	$(Q)$(STFLASH) write $(BUILD)/firmware0.bin 0x08000000
+	$(ECHO) "Writing $(BUILD)/firmware1.bin to the board via ST-LINK"
+	$(Q)$(STFLASH) --reset write $(BUILD)/firmware1.bin 0x08020000
+
+deploy-openocd: $(BUILD)/firmware.dfu
+	$(ECHO) "Writing $(BUILD)/firmware{0,1}.bin to the board via ST-LINK using OpenOCD"
+	$(Q)$(OPENOCD) -f $(OPENOCD_CONFIG) -c "stm_flash $(BUILD)/firmware0.bin $(BUILD)/firmware1.bin"
 
 $(BUILD)/firmware.dfu: $(BUILD)/firmware.elf
 	$(ECHO) "Create $@"
@@ -319,6 +354,12 @@ CDCINF_TEMPLATE = pybcdc.inf_template
 GEN_CDCINF_FILE = $(HEADER_BUILD)/pybcdc.inf
 GEN_CDCINF_HEADER = $(HEADER_BUILD)/pybcdc_inf.h
 
+# List of sources for qstr extraction
+SRC_QSTR += $(SRC_C) $(SRC_MOD) $(SRC_LIB)
+# Append any auto-generated sources that are needed by sources listed in
+# SRC_QSTR
+SRC_QSTR_AUTO_DEPS += $(GEN_CDCINF_HEADER)
+
 # Making OBJ use an order-only depenedency on the generated pins.h file
 # has the side effect of making the pins.h file before we actually compile
 # any of the objects. The normal dependency generation will deal with the
@@ -330,7 +371,8 @@ $(OBJ): | $(HEADER_BUILD)/pins.h
 # options change.
 $(HEADER_BUILD)/qstrdefs.generated.h: boards/$(BOARD)/mpconfigboard.h
 
-$(BUILD)/main.o: $(GEN_CDCINF_HEADER)
+# main.c can't be even preprocessed without $(GEN_CDCINF_HEADER)
+main.c: $(GEN_CDCINF_HEADER)
 
 # Use a pattern rule here so that make will only call make-pins.py once to make
 # both pins_$(BOARD).c and pins.h

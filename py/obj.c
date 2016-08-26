@@ -192,10 +192,16 @@ bool mp_obj_equal(mp_obj_t o1, mp_obj_t o2) {
             return mp_obj_str_equal(o1, o2);
         } else {
             // a string is never equal to anything else
-            return false;
+            goto str_cmp_err;
         }
     } else if (MP_OBJ_IS_STR(o2)) {
         // o1 is not a string (else caught above), so the objects are not equal
+    str_cmp_err:
+        #if MICROPY_PY_STR_BYTES_CMP_WARN
+        if (MP_OBJ_IS_TYPE(o1, &mp_type_bytes) || MP_OBJ_IS_TYPE(o2, &mp_type_bytes)) {
+            mp_warning("Comparison between bytes and str");
+        }
+        #endif
         return false;
     }
 
@@ -317,6 +323,7 @@ void mp_obj_get_complex(mp_obj_t arg, mp_float_t *real, mp_float_t *imag) {
 #endif
 #endif
 
+// note: returned value in *items may point to the interior of a GC block
 void mp_obj_get_array(mp_obj_t o, mp_uint_t *len, mp_obj_t **items) {
     if (MP_OBJ_IS_TYPE(o, &mp_type_tuple)) {
         mp_obj_tuple_get(o, len, items);
@@ -333,6 +340,7 @@ void mp_obj_get_array(mp_obj_t o, mp_uint_t *len, mp_obj_t **items) {
     }
 }
 
+// note: returned value in *items may point to the interior of a GC block
 void mp_obj_get_array_fixed_n(mp_obj_t o, mp_uint_t len, mp_obj_t **items) {
     mp_uint_t seq_len;
     mp_obj_get_array(o, &seq_len, items);
@@ -342,7 +350,7 @@ void mp_obj_get_array_fixed_n(mp_obj_t o, mp_uint_t len, mp_obj_t **items) {
                 "tuple/list has wrong length"));
         } else {
             nlr_raise(mp_obj_new_exception_msg_varg(&mp_type_ValueError,
-                "requested length %d but object has length %d", len, seq_len));
+                "requested length %d but object has length %d", (int)len, (int)seq_len));
         }
     }
 }

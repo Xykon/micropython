@@ -7,14 +7,24 @@ HEADER_BUILD = $(BUILD)/genhdr
 # file containing qstr defs for the core Python bit
 PY_QSTR_DEFS = $(PY_SRC)/qstrdefs.h
 
+# If qstr autogeneration is not disabled we specify the output header
+# for all collected qstrings.
+ifneq ($(QSTR_AUTOGEN_DISABLE),1)
+QSTR_DEFS_COLLECTED = $(HEADER_BUILD)/qstrdefs.collected.h
+endif
+
 # some code is performance bottleneck and compiled with other optimization options
 CSUPEROPT = -O3
 
+INC += -I../lib
 INC += -I../lib/netutils
 
 ifeq ($(MICROPY_PY_USSL),1)
-CFLAGS_MOD += -DMICROPY_PY_USSL=1 -I../lib/axtls/ssl -I../lib/axtls/crypto -I../lib/axtls/config
-LDFLAGS_MOD += -L../lib/axtls/_stage -laxtls
+CFLAGS_MOD += -DMICROPY_PY_USSL=1
+ifeq ($(MICROPY_SSL_AXTLS),1)
+CFLAGS_MOD += -DMICROPY_SSL_AXTLS=1 -I../lib/axtls/ssl -I../lib/axtls/crypto -I../lib/axtls/config
+LDFLAGS_MOD += -Lbuild -laxtls
+endif
 endif
 
 #ifeq ($(MICROPY_PY_LWIP),1)
@@ -57,6 +67,30 @@ SRC_MOD += $(LWIP_DIR)/netif/slipif.c
 endif
 endif
 
+ifeq ($(MICROPY_PY_BTREE),1)
+BTREE_DIR = lib/berkeley-db-1.xx
+CFLAGS_MOD += -D__DBINTERFACE_PRIVATE=1 -Dmpool_error=printf -Dabort=abort_ -Dvirt_fd_t=mp_obj_t "-DVIRT_FD_T_HEADER=<py/obj.h>"
+INC += -I../$(BTREE_DIR)/PORT/include
+SRC_MOD += extmod/modbtree.c
+SRC_MOD += $(addprefix $(BTREE_DIR)/,\
+btree/bt_close.c \
+btree/bt_conv.c \
+btree/bt_debug.c \
+btree/bt_delete.c \
+btree/bt_get.c \
+btree/bt_open.c \
+btree/bt_overflow.c \
+btree/bt_page.c \
+btree/bt_put.c \
+btree/bt_search.c \
+btree/bt_seq.c \
+btree/bt_split.c \
+btree/bt_utils.c \
+mpool/mpool.c \
+	)
+CFLAGS_MOD += -DMICROPY_PY_BTREE=1
+endif
+
 # py object files
 PY_O_BASENAME = \
 	mpstate.o \
@@ -94,6 +128,7 @@ PY_O_BASENAME = \
 	parsenum.o \
 	emitglue.o \
 	runtime.o \
+	runtime_utils.o \
 	nativeglue.o \
 	stackctrl.o \
 	argcheck.o \
@@ -153,6 +188,8 @@ PY_O_BASENAME = \
 	modmicropython.o \
 	modstruct.o \
 	modsys.o \
+	moduerrno.o \
+	modthread.o \
 	vm.o \
 	bc.o \
 	showbc.o \
@@ -166,14 +203,32 @@ PY_O_BASENAME = \
 	../extmod/moduheapq.o \
 	../extmod/moduhashlib.o \
 	../extmod/modubinascii.o \
+	../extmod/virtpin.o \
 	../extmod/machine_mem.o \
-	../extmod/modussl.o \
+	../extmod/machine_pinbase.o \
+	../extmod/machine_pulse.o \
+	../extmod/machine_i2c.o \
+	../extmod/modussl_axtls.o \
 	../extmod/modurandom.o \
+	../extmod/modwebsocket.o \
+	../extmod/modwebrepl.o \
+	../extmod/modframebuf.o \
 	../extmod/fsusermount.o \
+	../extmod/vfs_fat.o \
+	../extmod/vfs_fat_ffconf.o \
+	../extmod/vfs_fat_diskio.o \
+	../extmod/vfs_fat_file.o \
+	../extmod/vfs_fat_lexer.o \
+	../extmod/vfs_fat_misc.o \
 	../extmod/moduos_dupterm.o \
+	../lib/embed/abort_.o \
 
 # prepend the build destination prefix to the py object files
 PY_O = $(addprefix $(PY_BUILD)/, $(PY_O_BASENAME))
+
+# Sources that may contain qstrings
+SRC_QSTR_IGNORE = nlr% emitnx% emitnthumb% emitnarm%
+SRC_QSTR = $(SRC_MOD) $(addprefix py/,$(filter-out $(SRC_QSTR_IGNORE),$(PY_O_BASENAME:.o=.c)) emitnative.c)
 
 # Anything that depends on FORCE will be considered out-of-date
 FORCE:
@@ -187,14 +242,13 @@ $(HEADER_BUILD)/mpversion.h: FORCE | $(HEADER_BUILD)
 MPCONFIGPORT_MK = $(wildcard mpconfigport.mk)
 
 # qstr data
-
 # Adding an order only dependency on $(HEADER_BUILD) causes $(HEADER_BUILD) to get
 # created before we run the script to generate the .h
 # Note: we need to protect the qstr names from the preprocessor, so we wrap
 # the lines in "" and then unwrap after the preprocessor is finished.
-$(HEADER_BUILD)/qstrdefs.generated.h: $(PY_QSTR_DEFS) $(QSTR_DEFS) $(PY_SRC)/makeqstrdata.py mpconfigport.h $(MPCONFIGPORT_MK) $(PY_SRC)/mpconfig.h | $(HEADER_BUILD)
+$(HEADER_BUILD)/qstrdefs.generated.h: $(PY_QSTR_DEFS) $(QSTR_DEFS) $(QSTR_DEFS_COLLECTED) $(PY_SRC)/makeqstrdata.py mpconfigport.h $(MPCONFIGPORT_MK) $(PY_SRC)/mpconfig.h | $(HEADER_BUILD)
 	$(ECHO) "GEN $@"
-	$(Q)cat $(PY_QSTR_DEFS) $(QSTR_DEFS) | $(SED) 's/^Q(.*)/"&"/' | $(CPP) $(CFLAGS) - | sed 's/^"\(Q(.*)\)"/\1/' > $(HEADER_BUILD)/qstrdefs.preprocessed.h
+	$(Q)cat $(PY_QSTR_DEFS) $(QSTR_DEFS) $(QSTR_DEFS_COLLECTED) | $(SED) 's/^Q(.*)/"&"/' | $(CPP) $(CFLAGS) - | sed 's/^"\(Q(.*)\)"/\1/' > $(HEADER_BUILD)/qstrdefs.preprocessed.h
 	$(Q)$(PYTHON) $(PY_SRC)/makeqstrdata.py $(HEADER_BUILD)/qstrdefs.preprocessed.h > $@
 
 # emitters

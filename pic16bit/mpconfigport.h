@@ -43,6 +43,7 @@
 #define MICROPY_ENABLE_SOURCE_LINE  (0)
 #define MICROPY_ENABLE_DOC_STRING   (0)
 #define MICROPY_ERROR_REPORTING     (MICROPY_ERROR_REPORTING_TERSE)
+#define MICROPY_PY_ASYNC_AWAIT      (0)
 #define MICROPY_PY_BUILTINS_BYTEARRAY (0)
 #define MICROPY_PY_BUILTINS_MEMORYVIEW (0)
 #define MICROPY_PY_BUILTINS_FROZENSET (0)
@@ -59,7 +60,6 @@
 #define MICROPY_PY_IO               (0)
 #define MICROPY_PY_STRUCT           (0)
 #define MICROPY_PY_SYS              (0)
-#define MICROPY_MODULE_FROZEN       (0)
 #define MICROPY_CPYTHON_COMPAT      (0)
 #define MICROPY_LONGINT_IMPL        (MICROPY_LONGINT_IMPL_MPZ)
 #define MICROPY_FLOAT_IMPL          (MICROPY_FLOAT_IMPL_NONE)
@@ -83,8 +83,6 @@
 typedef int mp_int_t; // must be pointer size
 typedef unsigned int mp_uint_t; // must be pointer size
 
-typedef void *machine_ptr_t; // must be pointer size
-typedef const void *machine_const_ptr_t; // must be pointer size
 typedef int mp_off_t;
 
 #define MP_PLAT_PRINT_STRN(str, len) mp_hal_stdout_tx_strn_cooked(str, len)

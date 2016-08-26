@@ -70,22 +70,20 @@ try:
 except NotImplementedError:
     print('NotImplementedError')
 
-mpz = 1 << 70
-
-# mpz and with both args negative
+# tuple load with step!=1 not implemented
 try:
-    -mpz & -2
+    ()[2:3:4]
 except NotImplementedError:
     print('NotImplementedError')
 
-# mpz or with args opposite sign
+# list store with step!=1 not implemented
 try:
-    -mpz | 2
+    [][2:3:4] = []
 except NotImplementedError:
     print('NotImplementedError')
 
-# mpz xor with args opposite sign
+# list delete with step!=1 not implemented
 try:
-    -mpz ^ 2
+    del [][2:3:4]
 except NotImplementedError:
     print('NotImplementedError')
